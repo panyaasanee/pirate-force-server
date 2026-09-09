@@ -72,14 +72,25 @@ no stat).  Both are now answered by reading, not guessing:
   GM-warp code in this same method already compares against, a few lines
   below) ties the tick to the vital a moving player already sends
   continuously, without composing anything on frames that are not one.
-* THE PLAYER IDENTITY: ``self.foundation.selected.identity_hi``/
-  ``identity_lo``, packed exactly as
-  ``((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.identity_lo &
-  0xFFFFFFFF)`` -- not invented for this file: it is the SAME formula
-  runtime.py's own combat dispatch (``performer``, ~line 4142) and its
-  scene007 EA7D action-ack path (~line 6728) already use for "this
-  connection's own actor identity" today, on a path that already reaches
-  real players.  Reused, not re-derived: the encoder that already ships.
+* THE PLAYER IDENTITY: ``runtime.selected_actor_identity(self.foundation.
+  selected)`` -- R4's own "one dispenser for the whole circuit, and guard
+  the value 0" (PANYA ``20260908_1420``), reused here rather than
+  re-derived.  [CORRECTED, round `k1hsp0`, rule 1545: this line used to
+  hand-compose the identity as ``((selected.identity_hi & 0xFFFFFFFF) <<
+  32) | (selected.identity_lo & 0xFFFFFFFF)`` -- the exact "two readings of
+  one field" shape R4's player half was booted to remove, and the one shape
+  ``tests/test_player_identity_one_dispenser.py``'s own AST guard cannot
+  see, because that guard only walks ``runtime.py``'s source and this
+  formula lived here, in a STRING this file asks the chief to paste
+  in VERBATIM.  Measured, round `k1hsp0`: every one of runtime.py's own
+  three "performer" call sites (~5663, ~7570, ~11635) had already moved to
+  ``selected_actor_identity`` -- this file's own order was the only place in
+  the tree still telling a future paste to hand-compose it, unguarded
+  against identity 0, and a revert or a re-paste from this string would have
+  reintroduced the defect R4 closed everywhere else.  ``selected_actor_
+  identity`` is a module-level function already defined in ``runtime.py``
+  itself, so the pasted line needs no new import -- it is reused exactly
+  the way runtime.py's own three call sites reuse it.]
 
 ``LANE_B_MOB_AI_TICK_WIRING`` below is the exact block, ready to paste.
 
@@ -161,6 +172,25 @@ POINT = "vital_inbound_target_pos_mob_ai_tick"
 # go back to a literal, and tests/test_mob_aggro.py reads the argument out of
 # runtime.py's AST -- not out of this string -- so neither file is trusting
 # the other's spelling.
+#
+# ROUND `k1hsp0`, RULE 1545 -- A SECOND STALE SPELLING, SAME SHAPE AS THE ONE
+# ABOVE.  This order's own ``performer = ...`` line hand-composed the player
+# identity (``((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.
+# identity_lo & 0xFFFFFFFF)``) long after R4's player half replaced every
+# hand composition in ``runtime.py`` with the one dispenser,
+# ``selected_actor_identity`` -- which refuses identity 0 by name
+# (``mob_identity_sign.refuse_undrawable_identity`` under it) where the hand
+# formula refuses nothing.  ``tests/test_player_identity_one_dispenser.py``'s
+# own AST guard (``NoCallSiteSpellsItByHandTests``) cannot see this: it walks
+# ``runtime.py``'s source only, and the formula lived here, in a STRING this
+# file tells the chief to paste VERBATIM -- so a revert or a re-paste from
+# this order would have reintroduced, in one file this lane owns, the exact
+# defect R4 closed everywhere else.  Measured before fixing: every one of
+# runtime.py's three real "performer" call sites (~5663, ~7570, ~11635) had
+# already moved to ``selected_actor_identity``; this order was the only
+# surviving copy of the old shape.  ``tests/test_lane_b_mob_ai_tick.py::
+# WiringLineTests`` now pins the corrected spelling the same way it already
+# pinned the gate argument above.
 LANE_B_MOB_AI_TICK_WIRING = (
     "runtime.py dispatch(self, parsed), immediately after "
     "'actions = self._dispatch_with_lanes(parsed)': "
@@ -172,8 +202,7 @@ LANE_B_MOB_AI_TICK_WIRING = (
     "lane_hooks.module_production_allowed("
     "lane_b_mob_ai_tick.MODULE_NAME)): "
     "selected = self.foundation.selected; "
-    "performer = ((selected.identity_hi & 0xFFFFFFFF) << 32) | "
-    "(selected.identity_lo & 0xFFFFFFFF); "
+    "performer = selected_actor_identity(selected); "
     "x, y, z, _heading = self.last_target_pos; "
     "self.mob_ai_register, _tick_results = "
     "lane_b_mob_ai_tick.maybe_tick(self.mob_ai_register, "

@@ -90,6 +90,8 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 # Prison Exile Island, the same destination the sibling files drive: a real
@@ -510,6 +512,15 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
         and would survive this change untouched.
         """
         refusal_scene = 17
+        # PANYA-DECISION 20260908_1218 opened every door in the shipped
+        # registry, so a config the map REFUSES is installed here rather
+        # than named: the real scene 17 row, its real spawn, one boolean
+        # flipped back.  What is measured is unchanged -- a refused entry
+        # must not touch the GM-gated file -- and it is measured on the one
+        # reading in which the map refuses at all.
+        patcher = bent.patch_disk(bent.shut_at_login(refusal_scene))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._write_configs([], {}, {"plain_tester": refusal_scene})
         gm_map_before = self.overrides_path.read_bytes()
         standalone_before = self.standalone_path.read_bytes()
@@ -563,6 +574,12 @@ class GmStandaloneLoginSceneAtLoginTests(unittest.TestCase):
         at a door that opens once.  Both logins must come out the same, and
         both must come out inside the game.
         """
+        # Same bend as the sibling case above: the lockout this pins as
+        # absent is the one a REFUSED standalone entry used to cause, and
+        # since 1218 no shipped row is refused.
+        patcher = bent.patch_disk(bent.shut_at_login(17))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._write_configs([], {}, {"plain_tester": 17})
 
         with contextlib.redirect_stderr(io.StringIO()):

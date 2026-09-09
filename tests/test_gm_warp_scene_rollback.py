@@ -69,13 +69,18 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 #: Prison Exile: marker-backed, `login_entry_allowed` true, the destination
 #: the owner typed in R309 and the one every sibling file uses.
 DESTINATION_SCENE = 2
 
-#: Pinned `login_entry_allowed=False`, so the forward write refuses it.
+#: The scene the login refuses.  PANYA-DECISION 20260908_1218 opened 126 in
+#: the SHIPPED registry, so the refusal is installed by the case that needs
+#: it (`self._shut_the_door_on(REFUSED_SCENE)`) rather than read off the
+#: file: the real row, the real spawn, one boolean flipped back.
 REFUSED_SCENE = 126
 
 
@@ -189,6 +194,39 @@ class RealDatabaseTests(unittest.TestCase):
     def _row(self, session):
         return self.store.get_character(session.foundation.selected.id).position
 
+    def _bend_the_disk(self, registry):
+        """Everything after this call reads `registry` instead of the file.
+
+        Three caches have to move together or a case measures the shipped
+        reading while claiming to measure the bend: the loader itself, the
+        module-level login snapshot `gm/warp_scene_persist` takes once per
+        process, and `CharacterLifecycle`'s copy, which it reads in its
+        constructor.  `setUp` has already built a lifecycle, so it is rebuilt
+        here -- a server BOOTED against this registry, which is the state
+        every case using this is about.
+        """
+        patcher = bent.patch_disk(registry)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
+        self.lifecycle = CharacterLifecycle(
+            self.store, self.home,
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        return registry
+
+    def _shut_the_door_on(self, scene_id):
+        """The pre-1218 reading for one scene: the login refuses it."""
+        registry = self._bend_the_disk(bent.shut_at_login(scene_id))
+        self.assertFalse(
+            warp_scene_persist.login_would_accept(scene_id),
+            "the bend did not reach the login snapshot, so this case would "
+            "measure a destination the login ACCEPTS and prove nothing",
+        )
+        return registry
+
     # ---- finding 1: the undo exists, and it really puts the row back ----
 
     def test_the_no_coords_branch_hands_back_an_undo_that_restores_the_row(
@@ -229,6 +267,7 @@ class RealDatabaseTests(unittest.TestCase):
         of the returned callable, so offering one here would turn "nothing
         happened" into a claim that something was reverted.
         """
+        self._shut_the_door_on(REFUSED_SCENE)
         session = self._session("rollback02")
         stream = io.StringIO()
         with redirect_stderr(stream):
@@ -430,15 +469,30 @@ class RealDatabaseTests(unittest.TestCase):
 
         Scene 14 is the one that matters: marker-backed and
         `login_entry_allowed=True`, so `login_would_accept` passes and it IS a
-        live `/warp` destination, unlike 17 and 126.
+        live `/warp` destination, unlike a scene the login itself refuses.
 
-        WHAT THIS TEST DOES NOT SAY: that `/warp 14` is fixed.  R309's gap is
-        still open for that scene -- the frame goes out, the row does not
+        ~~WHAT THIS TEST DOES NOT SAY: that `/warp 14` is fixed.  R309's gap
+        is still open for that scene -- the frame goes out, the row does not
         move, the next login comes back to the departure scene.  Whether the
         registry should let scene 14 persist is a registry question this lane
-        does not own; it is raised with COO in this round's letter.  What the
-        fix here buys a tester is that the console now says WHY.
+        does not own; it is raised with COO in this round's letter.~~ ANSWERED
+        AND STRUCK, LANE-A round 3a11a0: PANYA-DECISION 20260908_1218 says
+        a login returns a character to the exact point it logged out from, in
+        every scene, and `pirate-force-server#1137` flipped scene 14's
+        `persist_position_allowed` to true accordingly.  `/warp 14` now moves
+        the row on the shipped registry, so the departure-scene gap this
+        paragraph described is closed for it.
+
+        WHAT SURVIVES THAT, and is what this case still measures: the
+        REFUSAL's console word.  A registry that forbids a write must say so
+        rather than report the write-door defect `row_not_touched`, and the
+        two must never be laundered into each other.  So the forbidding row
+        is installed here -- the real scene 14 row with one boolean flipped
+        back -- and the whole real path (store, lifecycle, gate) runs against
+        it.  The day lane A pins another scene unpersisted, this is the case
+        that already covers it.
         """
+        self._bend_the_disk(bent.unpersisted(14))
         session = self._session("registry01")
         before = self._row(session)
         stream = io.StringIO()
@@ -516,6 +570,7 @@ class RealDatabaseTests(unittest.TestCase):
         self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
 
     def test_a_none_stderr_never_sends_the_failed_token_to_stdout(self):
+        self._shut_the_door_on(REFUSED_SCENE)
         session = self._session("stderrnone02")
         out = io.StringIO()
         with mock.patch.object(warp_scene_persist.sys, "stderr", None):
@@ -563,6 +618,7 @@ class RealDatabaseTests(unittest.TestCase):
     def test_a_raising_stderr_leaves_a_named_event_for_the_lost_failed_line(
         self,
     ):
+        self._shut_the_door_on(REFUSED_SCENE)
         session = self._session("lostline02")
         with mock.patch.object(
             warp_scene_persist.sys, "stderr", _RaisingStderr(),

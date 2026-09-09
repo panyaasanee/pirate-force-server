@@ -125,11 +125,17 @@ class TheDecreeReachesItsOneGate(unittest.TestCase):
         # cp874 console: the line stays 7-bit ASCII like every other one.
         line.encode("ascii")
 
-    def test_the_login_door_is_not_what_this_round_opened(self):
-        # COO-DECISION 20260829_1444 needs an attended var2 test before the
-        # ordinary login path may resolve into 126.  A live warp is a
-        # different door, and this round did not touch that one.
-        self.assertFalse(self.registry[DECREED_SCENE].login_entry_allowed)
+    def test_the_login_door_was_opened_later_and_by_somebody_else(self):
+        # ~~test_the_login_door_is_not_what_this_round_opened~~ -- RENAMED
+        # AND INVERTED, LANE-A round 9lv3fa, 2026-09-08.  The sentence this
+        # case made about ROUND ihjytc is still true and is why the rename
+        # keeps the words: that round decreed an ARRIVAL POINT and did not
+        # touch the login door.  The door was opened four days later, by
+        # PANYA-DECISION 20260908_1218, which also voided the part of
+        # COO-DECISION 20260829_1444 that required an attended var2 test
+        # first.  Asserted here rather than dropped, so a decree round can
+        # still never be mistaken for the round that opened a door.
+        self.assertTrue(self.registry[DECREED_SCENE].login_entry_allowed)
 
 
 class TheDecreeReachesNothingElse(unittest.TestCase):
@@ -241,14 +247,25 @@ class TheDurableHalfIsRefusedAndSaysSo(unittest.TestCase):
             scene_id for scene_id in live
             if not warp_scene_persist.login_would_accept(scene_id)
         ]
-        self.assertEqual(refused, [DECREED_SCENE, 304, 305], live)
+        # ~~self.assertEqual(refused, [DECREED_SCENE, 304, 305], live)~~ --
+        # LANE-A round 9lv3fa: PANYA-DECISION 20260908_1218 opened all three,
+        # so the refused set is EMPTY. The closed-set property this case
+        # exists for is unchanged and is what is asserted: any live warp
+        # target whose durable write is refused is a leak, and today there
+        # must be none at all.
+        self.assertEqual(refused, [], live)
+        self.assertTrue(live, "no live warp targets means this proves nothing")
 
     def test_the_registry_row_still_says_why(self):
         registry = world_scene_travel.load_scene_registry()
         row = registry[DECREED_SCENE]
-        self.assertFalse(row.login_entry_allowed)
-        # And it still owes a return ticket, which is the same fact wearing
-        # the console's clothes.
+        # LANE-A round 9lv3fa: the door is open (1218), and the return ticket
+        # is the fact that did NOT change with it - `needs_return_ticket` is
+        # true for every non-home destination, and 1218's answer to "how does
+        # a character get back" is "it logs in where it logged out", not a
+        # ticket. The two were never the same question; this is where that
+        # stops being provable by accident.
+        self.assertTrue(row.login_entry_allowed)
         self.assertTrue(
             world_scene_travel.entry_report(row)["needs_return_ticket"])
 

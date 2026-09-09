@@ -127,6 +127,7 @@ from . import field_mob_hostile_bg0015
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_death
+from . import mob_identity_sign
 from . import mob_scene_recompose
 
 # world_scene_folder._FOLDER_BY_SCENE_ID: (2, "Bg0002"), (14, "Bg0015").
@@ -297,17 +298,60 @@ def splice_identities_missing_from(
     """
     external = set()
     for identity in external_identities:
-        if type(identity) is not int or identity <= 0:
+        # ONE RULE, ONE PLACE (PANYA-ORDER 20260908_1545 item 2.2,
+        # COO-DECISION 20260909_1312 item 1).  These are MONSTER identities
+        # -- lane A's census rows for scene 14 -- and this door used to
+        # spell ``identity <= 0`` itself, which refuses the whole band the
+        # day ``field_mobs.actor_identity`` moves onto it (job 3).
+        #
+        # THE FIRST DRAFT OF THIS COMMENT FABRICATED THE OLD BEHAVIOUR
+        # (pf-adversary, round 9xv7rc, D2).  It said the old door "would
+        # have reported all twelve missing"; it would not -- it RAISED,
+        # naming the offending value.  Measured: a flipped census through
+        # the old door gives ``MobCombatBg0015GateError: external
+        # identities must be positive ints, got -8193``.  Saying otherwise
+        # invented a failure to justify a change, which is the one thing a
+        # comment beside a refusal must never do.
+        #
+        # ``type(...) is not int`` stays spelled out here rather than being
+        # left to the predicate: ``True`` is a bool, a bool IS an int to
+        # ``isinstance``, and an identity set that quietly admitted ``True``
+        # as the number 1 is exactly the kind of row this cross-check exists
+        # to catch.  The predicate refuses it too, with its own error type;
+        # this door keeps its own so callers still catch one exception.
+        if type(identity) is not int \
+                or not mob_identity_sign.is_targetable_identity(identity):
             raise MobCombatBg0015GateError(
-                "external identities must be positive ints, got %r"
-                % (identity,))
+                "external identities must be drawable identities in the "
+                "signed wire band, got %r" % (identity,))
         external.add(identity)
     if not external:
         raise MobCombatBg0015GateError(
             "an empty external identity set cannot back anything: refusing "
             "to report 'all twelve missing' as if it were a measurement")
+    spliced = splice_identities(legacy)
+    # A HALF-FLIPPED COMPARISON IS NOT A MEASUREMENT (pf-adversary, round
+    # 9xv7rc, D2).  The two sides are, by this function's own docstring,
+    # separate runtime paths that do not import each other -- so they can
+    # cross onto the negative band at different commits.  While the old
+    # ``identity <= 0`` door stood, that window raised; widening the door to
+    # the whole signed band opened it, and a census on one side compared
+    # with a splice table on the other returns "all of them missing" with no
+    # exception at all: the empty-set guard above does not fire, because the
+    # census is not empty.  That is the exact reading the guard above exists
+    # to refuse, arriving through the other door.  So the sign disagreement
+    # itself is the refusal, named, with both sides in the message.
+    sides = {identity < 0 for identity in external}
+    sides |= {identity < 0 for identity in spliced if type(identity) is int}
+    if len(sides) > 1:
+        raise MobCombatBg0015GateError(
+            "the census and the splice table are on opposite sides of the "
+            "identity sign, so 'missing' would mean 'flipped at a different "
+            "commit', not 'absent': census sample %r, splice sample %r -- "
+            "re-run this cross-check once both sides carry the same band"
+            % (sorted(external)[:3], sorted(spliced)[:3]))
     return tuple(
-        identity for identity in splice_identities(legacy)
+        identity for identity in spliced
         if identity not in external
     )
 

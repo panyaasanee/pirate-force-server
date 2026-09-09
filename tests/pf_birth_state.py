@@ -81,11 +81,21 @@ so it is not all it does.  Two separate questions are asked:
    and names the module it is measured from -- the shipped, sha-pinned
    `standard_status.tsv`, whose `n_EXP_CURRENTLV` is 0 at level 1 -- so this
    file reads it through `persistence_experience` rather than leaving it
-   ungraded.  For a column no module owns a number for -- `skill_points`
-   today, and whatever the next discovery adds -- question 2 has nothing to
-   say and says nothing.  That is the deliberate gap the owner ordered: a new
-   birth column needs no permission from this file.  What stops that gap from
-   becoming permanent is not here but in
+   ungraded.  `skill_points` is still ungraded here -- no module has
+   published a number for it yet -- but its ASSUMPTION no longer belongs
+   to this lane.  Through round `s5d4kz` an unstated "0" was this lane's
+   own guess; `COO-DECISION 20260908_1441` named the number's owner as
+   LANE-CS (`skill_point_curve.py`'s birth constant, to be published with a
+   `MEASURED`/`ASSUMPTION` provenance tag) instead, so the live status is
+   `[assumption of the project - number owner = LANE-CS per COO-DECISION
+   20260908_1441]`, not this lane's own assumption to carry.  Question 2
+   starts grading it the day `skill_point_curve` publishes that constant
+   and this file is wired to read it -- not done this round, so the gap
+   below still applies to it in practice.  For a column no module owns a
+   number for -- whatever the next discovery adds -- question 2 has nothing
+   to say and says nothing.  That is the deliberate gap the owner ordered: a
+   new birth column needs no permission from this file.  What stops that gap
+   from becoming permanent is not here but in
    `tests/test_migration_017_*.py::ItStaysTrueOnTheDIRECTORYNotOnlyOnThisVersionTests`,
    which reads the shipped `migrations/` directory and is red the day a later
    migration takes either default away or changes its number.
@@ -141,7 +151,12 @@ def _adjudicated_birth_values() -> dict[str, int | float]:
     here, and absence means "this file has nothing to say about the value",
     not "the value is wrong".  ``experience`` and ``skill_points`` are absent
     on purpose -- `migrations/017` gives them a DEFAULT of 0 on
-    `PANYA-DECISION 20260908_1218`, and no module publishes those numbers.
+    `PANYA-DECISION 20260908_1218`, and no module publishes those numbers
+    YET.  ``skill_points`` is `[assumption of the project - number owner =
+    LANE-CS per COO-DECISION 20260908_1441]` -- CS's job, not a re-open of
+    this lane's own resolved ``016``/``017`` labels (`COO-DECISION
+    20260908_2055`: an applied migration is frozen, so `016`'s own comment
+    keeps its retired wording forever and this status lives here instead).
     """
     from pirateforce_foundation import persistence_attr_compose as compose
 

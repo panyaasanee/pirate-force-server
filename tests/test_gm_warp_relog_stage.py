@@ -62,6 +62,8 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 #: ~~The scene the chief letter sanctions and the login path still bars.~~
@@ -533,8 +535,34 @@ class ThroughTheRealWarpBranchTests(unittest.TestCase):
             return None
         return json.loads(self.config_path.read_text(encoding="utf-8"))
 
+    def _shut_the_sanctioned_door(self):
+        """Read the registry as it read before 1218 for the sanctioned scene.
+
+        `gm/warp_scene_persist` holds its login reading in a module-level
+        snapshot taken once per process, so the loader patch alone would
+        leave `login_would_accept` answering from the shipped file; the
+        context manager clears that snapshot on the way in and on the way
+        out.
+        """
+        holder = bent.process_reads(bent.shut_at_login(SANCTIONED_SCENE))
+        holder.__enter__()
+        self.addCleanup(holder.__exit__, None, None, None)
+        self.assertFalse(
+            warp_scene_persist.login_would_accept(SANCTIONED_SCENE),
+            "the bend did not reach the login snapshot, so the row would "
+            "move and the disagreement this file measures would be gone",
+        )
+
     def test_warp_126_sends_the_frame_leaves_the_row_and_stages_the_relog(self):
         """`1746` item 4 end to end, and its two console lines."""
+        # PANYA-DECISION 20260908_1218 opened scene 126's login door in the
+        # SHIPPED registry, and the disagreement this file is named for only
+        # exists while that door is shut: the frame goes out, the row is
+        # refused, the relog entry is staged.  So the shut door is installed
+        # -- the real 126 row, its real spawn, one boolean flipped back to
+        # what it read on 2026-09-07 -- and everything else is the real
+        # warp branch.
+        self._shut_the_sanctioned_door()
         session = self._session("relog01")
         verdict, printed = self._warp(session, SANCTIONED_SCENE)
 
@@ -612,6 +640,7 @@ class ThroughTheRealWarpBranchTests(unittest.TestCase):
         put the character into 126 off a command that never reached it.  Same
         shape as pf-adversary round `741zlx` finding 1, through the new door.
         """
+        self._shut_the_sanctioned_door()  # see the case above
         session = self._session("relog04")
         verdict, _printed = self._warp(session, SANCTIONED_SCENE)
 

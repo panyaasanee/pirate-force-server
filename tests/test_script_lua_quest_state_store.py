@@ -350,6 +350,38 @@ class RefusalsAreOursNotTheScriptsTests(unittest.TestCase):
         self.assertEqual(self.adapter.set_quest_flag(1, 33, 2), qss.REFUSED_VALUE)
         self.assertTrue(any("no-row-after-write" in line for line in self.log))
 
+    def test_a_flag_row_written_by_someone_else_outside_the_range_is_refused(self):
+        """pf-adversary F1 (re-review of merged PR #1184): ``store.py``
+        enforces no range on ``flag_value`` at all (COO decision, and its
+        own test proves negative values are stored as given) -- only this
+        lane's two coerced Lua-facing closures ever stay inside
+        ``0..0xFFFF``.  A row some OTHER writer put outside that range
+        (here: directly in the fake, standing in for an admin tool or a
+        migration) must be refused at THIS seam, not handed back as a
+        number that could equal ``quest.QUEST_FLAG_UNREADABLE`` itself.
+        """
+        self.store.flags[(1, 33)] = -1
+        denied = self.adapter.get_quest_flag(1, 33)
+        self.assertTrue(qs_signal.is_refused(denied))
+        self.assertEqual(qs_signal.reason_of(denied), "unreadable-row")
+        self.assertTrue(any("unreadable-row" in line for line in self.log))
+
+    def test_a_flag_write_that_reads_back_out_of_range_is_refused_not_trusted(self):
+        """Same gap, on the WRITE path: the store's read-back after a write
+        disagreeing with what this lane's own coercion just sent means a
+        concurrent writer this lane does not control landed in between."""
+        self.store.coerce = lambda value: -1
+        answer = self.adapter.set_quest_flag(1, 33, 5)
+        self.assertTrue(qs_signal.is_refused(answer))
+        self.assertEqual(qs_signal.reason_of(answer), "unreadable-row")
+
+    def test_a_flag_value_at_the_range_edges_is_still_accepted(self):
+        """The fix refuses OUTSIDE ``0..0xFFFF``, not the edges themselves."""
+        self.assertEqual(self.adapter.set_quest_flag(1, 33, 0), 0)
+        self.assertEqual(self.adapter.get_quest_flag(1, 33), 0)
+        self.assertEqual(self.adapter.set_quest_flag(1, 33, 0xFFFF), 0xFFFF)
+        self.assertEqual(self.adapter.get_quest_flag(1, 33), 0xFFFF)
+
     def test_a_bug_in_this_lane_is_not_swallowed_as_a_store_refusal(self):
         """A ``TypeError`` from a mis-wired adapter must reach the caller;
         only the three documented families degrade."""

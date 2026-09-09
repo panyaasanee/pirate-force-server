@@ -76,6 +76,7 @@ import io
 import json
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -190,11 +191,28 @@ ATLANTIS = 126
 # LANE-GM RETIRED SCENE 126'S SANCTION (their round `xbfcsi`, 2026-09-09, on
 # `COO-DECISION 20260908_2141`), so `SANCTIONED_BARRED_SCENES` is empty on
 # main and this lane's SECOND admission arm -- the one that asks the GM
-# lane's own predicate -- answers no for 126 until lane A's login row lands
-# and the FIRST arm covers it.  The arm's rules are this lane's, not scene
-# 126's, so the cases that test the ARM stand a sanction up for the duration
-# of one test instead of going quietly vacuous.  The cases that ask what is
-# true ON MAIN (`TheRetiredSanctionIsRecordedHereTests`) never call this.
+# lane's own predicate -- answers no for 126.  The arm's rules are this
+# lane's, not scene 126's, so the cases that test the ARM stand a sanction up
+# for the duration of one test instead of going quietly vacuous.
+#
+# THREE CORRECTIONS, LANE-A round 9ic0io (pf-adversary D6), all measured:
+# 1. ~~answers no for 126 UNTIL lane A's login row lands and the FIRST arm
+#    covers it~~ -- that reads as "the second arm starts saying yes once the
+#    row lands".  It does not, ever: the second arm is `is_sanctioned_barred_
+#    scene AND single_use`, and with the map empty on main the first half is
+#    permanently false.  Measured on this branch, with the row landed and the
+#    fixture removed: `scene_is_sanctioned_for_a_gm_entry(126)` is False.
+#    What the landed row changes is which arm CARRIES 126's census (the
+#    first), not what this one answers.
+# 2. ~~The cases that ask what is true ON MAIN
+#    (`TheRetiredSanctionIsRecordedHereTests`) never call this.~~ -- there is
+#    no such class in this repository; `grep` finds the name only in the
+#    sentence that invented it.  The case that asks what main carries is
+#    `test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction`.
+# 3. It does NOT avoid this fixture -- it lives in a class whose `setUp`
+#    installs the sanction, and it works around that by re-patching the map
+#    with `_shipped_gm_sanction_map()` for the length of its own block.
+#    "Never call this" was false in both halves.
 #
 # Touching only this file's tests is what `COO-DECISION 20260908_2141` and
 # `20260908_1742` item 4 allow: no lane sends another lane a bill, and no
@@ -2094,10 +2112,15 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         cls._work = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls._work.cleanup)
 
-    def test_the_registry_pin_for_this_scene_is_still_shut(self):
-        # The round's own claim, read off the repository's file: this round
-        # did NOT flip the door COO-DECISION 20260829_1444 pinned shut.
-        self.assertFalse(lane_a.scene_is_open_to_players(ATLANTIS))
+    def test_the_registry_pin_for_this_scene_is_open_since_1218(self):
+        # ~~test_the_registry_pin_for_this_scene_is_still_shut~~ -- INVERTED,
+        # LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218
+        # opened this door, and voided the part of COO-DECISION 20260829_1444
+        # that required an attended var2 test before any flip.  The GM arms
+        # below are unchanged and still tested by name: what changed is that
+        # the CHEAP arm now answers True for 126 too, so the GM arms are no
+        # longer the only thing standing between this scene and a census.
+        self.assertTrue(lane_a.scene_is_open_to_players(ATLANTIS))
 
     def test_the_gm_arm_admits_this_scene_and_the_pair_does_too(self):
         self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
@@ -2138,9 +2161,98 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         try:
             self.assertFalse(
                 lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
-            self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))
+            # ~~self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))~~
+            # -- STRUCK, LANE-A round 9lv3fa (PANYA-DECISION 20260908_1218).
+            # The coupling this test is named for is intact and is the
+            # assertion above: revoking the GM lane's sanction still darkens
+            # THIS ARM.  What it no longer darkens is the scene, because the
+            # registry pin - the first arm in scene_may_be_populated, and the
+            # one nothing in this test touches - now answers True for 126.
+            # A scene ordinary players may log in to is a scene that gets its
+            # actors whether or not a GM is sanctioned to enter it; asserting
+            # otherwise would pin an empty ocean for every player who arrives
+            # here under 1218.
+            self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
         finally:
             login_scene_admission.single_use_entry_is_admissible = original
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
+
+    def test_the_census_of_126_no_longer_depends_on_the_gm_lanes_table(self):
+        """The replacement for ``test_this_lane_finds_out_if_the_gm_lane_
+        retires_the_sanction`` (LANE-A round `1v5i3h`), which that test's own
+        docstring asked for: it said "either its door opened -- then this
+        lane's first admission arm covers it and this test should be deleted
+        -- or the census just went dark", and the door DID open
+        (PANYA-DECISION 20260908_1218 put ``login_entry_allowed: true`` on
+        scene 126).
+
+        WHY IT IS REPLACED RATHER THAN DELETED.  What the old test was FOR is
+        still worth a fence: LANE-GM retiring its row must not darken this
+        scene's census.  What it did was assert the row still EXISTS -- which,
+        the day the door opened, stopped measuring that and started demanding
+        that another lane keep a row it is documented to retire.  Round
+        `ioz8fd` measured ``sanctioned_barred_blocker(126) == BLOCKER_NONE``
+        already today, so the old assertion was one GM commit away from going
+        red for the RIGHT reason and blocking the wrong lane's tree.
+
+        THIS TEST MEASURES THE PROPERTY INSTEAD.  It kills BOTH GM-fed arms
+        in-process -- the sanction predicate and the table lookup the second
+        arm reads -- and requires the census to survive anyway on the first
+        arm (the registry pin).  Green today; red the day someone re-couples
+        126's census to the GM lane's table, or the day the registry pin that
+        replaced that coupling goes away.  It stays inside this lane: nothing
+        here needs LANE-GM to keep, remove, or change a single row.
+
+        IT IS NOT A CLAIM ABOUT ARM 2.  Arm 2 still exists and still reads the
+        GM lane's table for whatever scenes that table governs; the
+        assertions below are about scene 126's CENSUS surviving without it,
+        which is a different sentence.  ``test_the_arm_answers_the_gm_lanes_
+        own_predicate_not_a_copy`` above still drives arm 2 itself.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+
+        original_predicate = login_scene_admission.single_use_entry_is_admissible
+        original_lookup = login_scene_admission.is_sanctioned_barred_scene
+        login_scene_admission.single_use_entry_is_admissible = (
+            lambda *a, **k: False)
+        login_scene_admission.is_sanctioned_barred_scene = (
+            lambda *a, **k: False)
+        try:
+            # Both GM-fed arms are dead in this block.  Arm 2 asks the two
+            # functions just replaced; arm 3 refuses 126 by name, and the
+            # assertion below is what keeps that true rather than assuming
+            # it -- if a later round adds 126 to ARM_THREE_ELIGIBLE_SCENE_IDS
+            # this test would otherwise pass on the wrong arm.
+            self.assertFalse(
+                lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS),
+                "arm 2 answered yes with the GM lane's predicate forced to "
+                "no -- this test is no longer measuring what it claims",
+            )
+            self.assertFalse(
+                lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                    ATLANTIS),
+                "arm 3 has taken scene 126 -- see ARM_THREE_ELIGIBLE_SCENE_"
+                "IDS, whose own comment says 126 is arm 2's scene",
+            )
+            # ...and the census is STILL composed, on the registry pin alone.
+            self.assertTrue(
+                lane_a.scene_is_open_to_players(ATLANTIS),
+                "the registry pin no longer opens scene 126: the census of "
+                "this scene is back on another lane's table",
+            )
+            self.assertTrue(
+                lane_a.scene_may_be_populated(ATLANTIS),
+                "scene 126's census went dark with the GM lane's table "
+                "removed -- the coupling the old canary warned about is "
+                "back, and a player logging in here would arrive to an "
+                "empty ocean",
+            )
+        finally:
+            login_scene_admission.single_use_entry_is_admissible = (
+                original_predicate)
+            login_scene_admission.is_sanctioned_barred_scene = original_lookup
+
+        # Outside the block, nothing was left patched.
         self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
 
     def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
@@ -2197,7 +2309,7 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
             lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS, absent))
         self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS, absent))
 
-    def test_the_ordinary_login_path_still_refuses_this_scene(self):
+    def test_the_ordinary_login_path_now_admits_this_scene(self):
         """The sentence the round file and the PR body both make: this arm
         opens no door.  ``resolve_entry(..., via_login=True)`` is the
         ordinary login, and it must still refuse scene 126 with the pin
@@ -2220,23 +2332,25 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         # cannot put anybody into.
         self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
 
+        # ~~the ordinary login path still refuses this scene~~ -- INVERTED,
+        # LANE-A round 9lv3fa, PANYA-DECISION 20260908_1218.  COO-DECISION
+        # 20260902_2145's condition 1 was "the arm may answer yes while the
+        # door stays shut"; the owner has since opened the door, so the pair
+        # this test asserts on one process state is now the other pair: the
+        # arm says yes AND the ordinary login path admits.  The refusal is
+        # not deleted from the tree - it is exercised on a synthetic pinned
+        # scene in tests/test_world_scene_registry_login_door.py, which is
+        # also where the rule that keeps this door open is walked.
         emitted = []
-        with self.assertRaises(world_scene_entry.SceneEntryRefused) as raised:
-            world_scene_entry.resolve_entry(
-                Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
-                emit=emitted.append,
-                via_login=True,
-            )
-        self.assertIn(
-            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
-            str(raised.exception),
+        entry = world_scene_entry.resolve_entry(
+            Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
+            emit=emitted.append,
+            via_login=True,
         )
-        # And the refusal is silent on the wire: a census line for this
-        # scene reaching a client that was never admitted is the failure
-        # this condition exists to make impossible.
-        self.assertEqual(
-            [], [line for line in emitted if str(ATLANTIS) in str(line)
-                 and "CENSUS" in str(line).upper()],
+        self.assertEqual(entry.destination.n_id, ATLANTIS)
+        self.assertNotIn(
+            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+            "".join(str(line) for line in emitted),
         )
         # The arm still says yes AFTER the refusal, so the refusal is the
         # door doing its job rather than the arm having quietly flipped.
@@ -2305,6 +2419,90 @@ class AtlantisRegistrationTests(unittest.TestCase):
             legacy=self.legacy, anchor=self.anchor, scene_id=ATLANTIS,
         )
         self.assertIsNotNone(result.membership)
+
+
+class Scene126CensusOwesNothingToTheGmSanctionTable(unittest.TestCase):
+    """A tripwire, approved as this exact shape by COO-DECISION 20260908_1742.
+
+    THE HISTORY IN ONE PARAGRAPH.  Scene 126 is named in LANE-GM's
+    ``gm/login_scene_admission.SANCTIONED_BARRED_SCENES`` - a table of scenes
+    whose ordinary login door is SHUT and which a chief letter sanctions a GM
+    to reach anyway.  PANYA-DECISION 20260908_1218 opened the ordinary door
+    for 126, which makes that row stale; retiring it is LANE-GM's work and
+    LANE-GM has scheduled it (letter 20260908_1805, to this lane: the row
+    comes out on the first GM round after the door-opening commit is an
+    ancestor of main, together with the 25 cases across 5 files that read
+    it).  THIS LANE DOES NOT GET TO DELETE ANOTHER LANE'S ROW, and a case
+    that stays RED until another lane moves is a bill this lane has no right
+    to hand the whole house (COO-DECISION 20260908_1742, item 4, now a house
+    rule).
+
+    SO THIS CASE IS GREEN TODAY AND WATCHES A DIFFERENT THING: that the
+    census this lane composes for scene 126 does not READ that table.  Today
+    the answer for 126 comes from the registry row alone
+    (``scene_is_open_to_players`` -> ``login_entry_allowed``).  If a later
+    round wires this lane's 126 census back through the GM sanction map - the
+    tempting shortcut on the day the row is retired, because the map is
+    public and already imported in this tree - the two rebinds below start
+    disagreeing with the unpatched answer and this file goes red on the
+    round that did it, not four rounds later.
+
+    IT DOES NOT ASSERT the row is gone, that 126's door is open, or anything
+    at all about LANE-GM's own predicates: ``scene_is_sanctioned_for_a_gm_
+    entry`` is SUPPOSED to read that table (it is the second admission arm,
+    and its own docstring says so), so it is deliberately not exercised here.
+    """
+
+    SCENE_126 = 126
+
+    def _answers(self, table=None):
+        # Imported inside the method, the same shape this file already uses
+        # for the GM module at ``test_the_third_arm_asks_the_gm_predicate``:
+        # a lane test that imports another lane's module at file scope makes
+        # a collection error out of that lane's bad round.
+        from pirateforce_foundation.gm import login_scene_admission
+        if table is None:
+            return (
+                lane_a.scene_is_open_to_players(self.SCENE_126),
+                self.SCENE_126 in world_scene_travel.CENSUS_SOURCES,
+            )
+        with mock.patch.object(
+            login_scene_admission, "SANCTIONED_BARRED_SCENES", table
+        ):
+            return (
+                lane_a.scene_is_open_to_players(self.SCENE_126),
+                self.SCENE_126 in world_scene_travel.CENSUS_SOURCES,
+            )
+
+    def test_the_answer_for_126_does_not_move_when_the_gm_table_does(self):
+        as_shipped = self._answers()
+        emptied = self._answers(types.MappingProxyType({}))
+        widened = self._answers(
+            types.MappingProxyType({self.SCENE_126: "x", 130: "x", 305: "x"})
+        )
+        self.assertEqual(
+            as_shipped, emptied,
+            "this lane's census answer for scene 126 changed when LANE-GM's "
+            "SANCTIONED_BARRED_SCENES was emptied - which means it is being "
+            "read. Scene 126's census is this lane's to answer for, from the "
+            "registry row; see COO-DECISION 20260908_1742.")
+        self.assertEqual(
+            as_shipped, widened,
+            "this lane's census answer for scene 126 changed when LANE-GM's "
+            "SANCTIONED_BARRED_SCENES grew rows - same defect, other "
+            "direction.")
+
+    # THE CASE THAT SAT HERE IS DELETED, round `umv5w2` (pf-adversary D4 of
+    # round `sbqohw`).  It re-added `assertIn(126, SANCTIONED_BARRED_SCENES)`,
+    # byte for byte the assertion commit `74a9bd0` had just deleted from this
+    # file for the stated reason that it "had stopped measuring the coupling
+    # and started demanding another lane keep a row it is documented to
+    # retire".  LANE-GM has that retirement scheduled (letter 20260908_1805),
+    # so the case would have turned this lane's own test file red on LANE-GM's
+    # commit - the exact bill COO-DECISION 20260908_1742 item 4 forbids a lane
+    # to hand the house.  Calling it "a NOTE, not a demand" in a docstring
+    # does not change what a red build is.  The tripwire above is the part
+    # that has to survive that day, and it names no other lane's table.
 
 
 if __name__ == "__main__":

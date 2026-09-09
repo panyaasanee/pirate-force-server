@@ -71,7 +71,7 @@ class DispatchLineTests(unittest.TestCase):
         self.assertEqual(
             line,
             "LANE_Q_TRIGGER_VITAL_DISPATCH scene=Bg0002 wire_trigger_id=40"
-            " status=1 key=WIRE_NATIVE_ID_UNPROVEN_VS_TGR_ORDINAL",
+            " status=1 key=WIRE_NATIVE_ID_EQUALS_TGR_ORDINAL_RE273",
         )
         # The SAME book Trigger.GetTriggerStatus/NextStatus would read --
         # not a side channel, not a private copy.

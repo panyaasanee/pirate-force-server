@@ -6584,12 +6584,18 @@ def _print_lv_line(session: object, token: str, line: str) -> None:
     `level_command.console_line` out of numbers this module validated and
     the store read back -- never out of the raw chat text, which is the
     property every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line` (pf-adversary round
+    `ve2zs4`, D10): `token!r` is `repr`, not this stream's encoding, and a
+    printable-Thai account name passes `repr` unescaped for `cp874` to
+    choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{LV_CONSOLE_TOKEN} account={token!r} {line}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{LV_CONSOLE_TOKEN} account='{safe_account}' {line}", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -6797,12 +6803,18 @@ def _print_sandbox_line(session: object, token: str, line: str) -> None:
     "nothing the GM typed is ever printed" rule as `_print_skill_line` above
     -- and here the last of those is free rather than enforced: `sandbox`
     takes no arguments, so there is nothing typed that COULD reach a line.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line`/`_print_skill_line`/`_print_lv_line` now carry
+    (pf-adversary round `ve2zs4`, D10): this printer had the same bare
+    `token!r` shape they did.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - a lost line costs this line
         # and nothing else; the readback itself already happened.
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
@@ -7047,12 +7059,25 @@ def _print_job_line(session: object, token: str, line: str) -> None:
     `job_command.console_line` out of numbers this module validated and the
     store read back -- never out of the raw chat text, which is the property
     every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, THE SAME AS EVERY
+    OTHER OPERATOR-CONTROLLED FIELD IN THIS FILE (pf-adversary round
+    `ve2zs4`, D10, restating `nkb608` D-J: the bug was fixed once and this
+    printer still carried the old shape).  `token!r` alone folds through
+    Python's own `repr`, which is not this stream's encoding: a Thai
+    account name is largely PRINTABLE Unicode, so `repr` passes it through
+    unescaped and a `cp874` console can raise on the very bytes the
+    `except` below exists to catch, losing the whole line -- and a
+    newline in the account name would have forged a second console line,
+    the structural half `_one_line` exists to fold.  `console_safe` folds
+    to what THIS stream can carry; `_one_line` keeps the field to one line.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -7070,12 +7095,19 @@ def _print_skill_line(session: object, token: str, line: str) -> None:
     block greps for a line STARTING with the token; a `GM_LV`-style prefix
     ahead of it would leave those greps finding nothing while the line was
     right there.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line` above now carries (pf-adversary round `ve2zs4`, D10):
+    `token!r` alone is `repr`, not this stream's encoding, and a Thai
+    account name is printable enough that `repr` waves it through
+    unescaped for `cp874` to choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -7221,7 +7253,17 @@ def _skill_action(
     always answers `False`, the same shape `_speed_undo` uses for its own
     "nothing to put back" case, which reaches the console as "the effect was
     KEPT".  See that function's docstring for why no real deletion is
-    attempted.
+    attempted.  WHICH REFUSALS GET IT is `result.door_was_called`, not
+    `result.granted` -- see the call site below and `SkillGrant`'s own field.
+
+    TWO_SESSIONS_SAME_SCENE: nothing here is shared between connections.
+    The store and the selected character are read off `session` (see
+    `_speed_store` / `_selected_speed_character_id`), the console line goes
+    to this process's stderr, and no frame is composed for any client -- so
+    two sessions standing in one scene cannot see each other's `/skill all`.
+    Stated here because `_job_action` states it and this function is its
+    twin; the audit's own account attribution is a separate question, and
+    `TwoConnectionsOnOneListenerTests` measures where that still leaks.
     """
     try:
         skill_all_command.parse_subcommand(getattr(command, "args", None))
@@ -7271,15 +7313,30 @@ def _skill_action(
             say_wire.SKILL_REFUSED_NOTICE_TEXT,
             SKILL_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
-            # THE SAME FIX AS `_job_action`'s (pf-adversary round `nkb608`,
-            # D-B), and this branch is the one that was measured lying: a
-            # character removed halfway through the 137 grants refuses with
-            # `granted=20` on the console and, one line later, told the
-            # operator everything in hand was dropped -- with 20 rows on
-            # disk and no deleter in this lane that could have taken them
-            # off.  An always-`False` undo reaches the console as "the
-            # effect was KEPT", which is what those 20 rows are.
-            (lambda: False) if result.granted else None,
+            # THE CONDITION IS "WAS THE DOOR ENTERED", NOT "DID IT REPORT
+            # ROWS" (pf-adversary round `ve2zs4` D9, then this round's D-C).
+            # ~~`(lambda: False) if result.granted else None`~~ -- STRUCK.
+            # D9 called it a dead branch and it was: every refusal
+            # `grant_all` can construct carries `granted=0`, so the
+            # conditional read as a live safeguard while only ever selecting
+            # `None`.  The first fix was to write that `None` down -- and
+            # pf-adversary measured, on THIS round's own branch, that doing
+            # so re-opened `wv0fpe` D2 from the other side.  `granted == 0`
+            # was standing in for "nothing is on disk", which is true only
+            # of a store whose door is one transaction and whose read-back
+            # is complete -- the assumption D6, three files up, has just
+            # finished removing.  A store that writes and under-reports
+            # gives a refusal with `granted=0` and the whole curriculum on
+            # disk, and a missing undo prints "anything it had in hand was
+            # dropped with it" over 137 live rows.
+            #
+            # `door_was_called` is the fact this lane actually holds: the
+            # call either happened or it did not.  Every refusal AFTER it
+            # gets the always-`False` undo -- "the effect was KEPT" -- and
+            # only the refusals that return BEFORE the door (bad id, no
+            # door, unreadable row, empty curriculum) say the effect was
+            # dropped, which for them is true by construction.
+            (lambda: False) if result.door_was_called else None,
         )
     _note(session, EVENT_SKILL_ROWS_WRITTEN)
     return _skill_notice(

@@ -1797,6 +1797,25 @@ the registry keyed by (scene folder, WIRE id) -- named in both the module
 and every log line as `WIRE_NATIVE_ID_UNPROVEN_VS_TGR_ORDINAL`, so nothing
 downstream can mistake this key for a proven `.tgr` crosswalk.
 
+**MEASURED NOW, round `7mdavp`**: the crosswalk this round called
+unproven has been measured. `RE-273`'s narrowed follow-up
+(`pf_bridge/notes_to_chief/
+20260908_2230_RE-273-RESULT-TGR-ORDINAL-COPIES-TO-WIRE-TAG-0F.md`) traced
+the client's own data flow and found the wire's `0x0F` tag IS the `.tgr`
+record's embedded ordinal, copied byte-for-byte (`record+0x4E` ->
+`vital+0x14`) -- a positive field crosswalk, not a numeric coincidence.
+The log key and module docstring were updated the same round
+(`WIRE_NATIVE_ID_EQUALS_TGR_ORDINAL_RE273`); the registry key itself did
+not change (it was always the wire id, which the ordinal now provably
+equals). What is STILL missing, and why this section's "not player-visible
+yet" below still holds: the per-scene ordinal->filename DATA is not a
+committed table this lane can read without the live client --
+`gamedata/scene/*/*.placements.tsv` (checked this round) carries mob-set
+placements, not trigger records, and the one full `.tgr` dump this project
+has (`RE-289`) covers `Bg3001` only, as a letter, not a structured table.
+The open item is a data-extraction RE ticket (more scenes' `.tgr` files),
+not a crosswalk question.
+
 **What this is not, said plainly**: no `.lua` file is looked up or run; no
 `REAL_METHODS` count changed (still 5/17); nothing reaches the client;
 nothing is player-visible yet. It is COMING, not DONE (see this round's own

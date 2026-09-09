@@ -35,6 +35,8 @@ from pirateforce_foundation.gm import (  # noqa: E402
     login_scene_stage,
 )
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 # Three scene_ids the committed catalog knows (GM-004), pinned as literals
 # rather than read out of the catalog: a catalog that lost Port Royal should
 # fail this file loudly, not quietly agree with itself.
@@ -204,10 +206,13 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         self.assertFalse(self.config_path.exists())
 
     def test_a_scene_lane_a_barred_from_login_is_refused(self):
-        # Scene 17 is pinned in the registry AND marked
-        # `login_entry_allowed: false` after GT-106.  Being in the registry is
-        # not enough; the flag is the answer.
-        result = self.stage(self.GM_ACCOUNT, BARRED_FROM_LOGIN)
+        # Scene 17 is pinned in the registry.  Being in the registry is not
+        # enough; the flag is the answer -- and since PANYA-DECISION
+        # 20260908_1218 no shipped row carries a false flag, so the flag
+        # comes from a bend of the real registry (real row, real spawn, one
+        # boolean) rather than from a scene id that happens to be shut.
+        with bent.patch_disk(bent.shut_at_login(BARRED_FROM_LOGIN)):
+            result = self.stage(self.GM_ACCOUNT, BARRED_FROM_LOGIN)
         self.assertFalse(result.staged)
         self.assertEqual(login_scene_stage.REASON_NO_LOGIN_ENTRY, result.reason)
         self.assertFalse(self.config_path.exists())
@@ -271,8 +276,15 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # (Navy Training Camp) opened tenth, same queue, same compressed
         # shape, NOT elevated-risk.  Every one of the original ten doors is
         # now open, so this tuple has nothing left to grow into.
+        # IT GREW A LAST TIME, LANE-A ROUND 3a11a0: PANYA-DECISION
+        # 20260908_1218 opened 17, 126, 304 and 305 -- every door in the
+        # shipped registry.  A scene the login refuses is now something a
+        # test has to BEND the registry to get, not something the data
+        # supplies; `test_a_scene_lane_a_barred_from_login_is_refused` above
+        # does exactly that, so the refusal is still under test.
         self.assertEqual(
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997),
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304,
+             305, 997),
             login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():

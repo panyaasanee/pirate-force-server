@@ -34,6 +34,7 @@ WHAT IS PINNED HERE, AND WHY EACH ONE:
 from __future__ import annotations
 
 import sys
+import dataclasses
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -58,6 +59,22 @@ PALE_SILVER_SEA = 305
 ATLANTIS = 126
 ROSTER_COUNT = 50
 
+
+
+# LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218 opened this
+# scene's login door, which is exactly the "different decision" the third
+# arm's own tests below said would change what they mean.  It did, so those
+# tests now run against a BENT registry - the shipped rows with this one
+# scene's door shut again - and keep grading THE ARM: that it admits the
+# scene on its own, without the login door, and that revoking it darkens the
+# scene.  What the shipped registry says is asserted separately, by name, so
+# the bend can never hide a door that quietly closed for real.
+def _registry_with_this_door_shut():
+    real = world_scene_travel.load_scene_registry()
+    return world_scene_travel.SceneRegistry(destinations=tuple(
+        dataclasses.replace(row, login_entry_allowed=False)
+        if row.n_id == DARK_FOG_SEA else row
+        for row in real.destinations))
 
 class TheSceneIsRegisteredInBothTables(unittest.TestCase):
     def test_the_seam_table_names_this_lanes_composer(self) -> None:
@@ -86,7 +103,7 @@ class TheSceneIsRegisteredInBothTables(unittest.TestCase):
 class TheThirdAdmissionArm(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.registry = world_scene_travel.load_scene_registry()
+        cls.registry = _registry_with_this_door_shut()
 
     def test_the_real_registry_admits_scene_304_and_that_is_the_round(
         self,
@@ -258,15 +275,30 @@ class TheThirdAdmissionArm(unittest.TestCase):
                 ATLANTIS, self.registry))
         # And the lever really is the GM lane's again: revoke it and the
         # whole admission closes for scene 126.
+        #
+        # ON A REGISTRY WITH 126'S DOOR SHUT TOO, LANE-A round 9lv3fa:
+        # PANYA-DECISION 20260908_1218 opened 126 to ordinary players, and
+        # arm 1 admits an open scene whatever the GM lane says - correctly,
+        # because a scene players may stand in must have its actors. So the
+        # GM lever can only be the WHOLE admission for a scene the door is
+        # shut on, which is the state this assertion is about.
+        both_shut = world_scene_travel.SceneRegistry(destinations=tuple(
+            dataclasses.replace(row, login_entry_allowed=False)
+            if row.n_id in (DARK_FOG_SEA, ATLANTIS) else row
+            for row in world_scene_travel.load_scene_registry().destinations))
         original = login_scene_admission.single_use_entry_is_admissible
         login_scene_admission.single_use_entry_is_admissible = (
             lambda *a, **k: False)
         try:
             self.assertFalse(
-                lane_a.scene_may_be_populated(ATLANTIS, self.registry))
+                lane_a.scene_may_be_populated(ATLANTIS, both_shut))
         finally:
             login_scene_admission.single_use_entry_is_admissible = original
-        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS, self.registry))
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS, both_shut))
+        # ... and on the registry that actually ships, 126 is populated
+        # because its door is open, with no GM sanction involved at all.
+        self.assertTrue(lane_a.scene_is_open_to_players(
+            ATLANTIS, world_scene_travel.load_scene_registry()))
 
     def test_a_scene_the_gm_lane_governs_cannot_be_claimed_by_this_arm(
         self,
@@ -420,7 +452,7 @@ class TheComposerActuallyComposesForAGmStandingThere(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.legacy = load_legacy(LEGACY_PATH)
-        cls.registry = world_scene_travel.load_scene_registry()
+        cls.registry = _registry_with_this_door_shut()
         cls.anchor = world_scene_travel.spawn_position(
             world_scene_travel.destination(DARK_FOG_SEA))
 

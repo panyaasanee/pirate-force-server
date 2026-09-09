@@ -291,7 +291,8 @@ def scene_band_bounds(scene_id: int) -> tuple[int, int]:
 def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     """The monster-band identity for one placement in one scene.
 
-    THE ORDER IS THE CONTRACT, NOT A SIDE EFFECT.  Identities ASCEND with
+    THE ORDER IS THE CONTRACT, NOT A SIDE EFFECT: increasing order by
+    placement is the contract, not a side effect.  Identities ASCEND with
     the placement index inside a scene, and ascend with the scene id across
     scenes, so sorting a roster by identity reproduces the order the table
     placed it in.  That sentence is the whole point of this function and it
@@ -326,10 +327,24 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     permuting the roster does not move one byte of it.  Consequence worth
     writing down: the census wire order is NOT a reason to prefer this fix
     over re-sorting ``load_roster``, though the COO letter that approved
-    this one gave it as such.
+    this one gave it as such.  RE-CHECKED, ROUND k1hsp0: a later restatement
+    of the same approval (handed to this round as four readers --
+    ``load_roster``, ``CombatLedger``, ``open_register`` AND census) still
+    names census as a fourth dependant.  It is not: the measurement above
+    (``nearest_first`` / ``census_order`` re-sorting by distance every time)
+    is unchanged and this round re-ran it rather than take the restatement's
+    word for it.  A docstring that named a fourth reader here would be
+    exactly the kind of claim this house refuses to fabricate -- see
+    ``refuse_undrawable_identity`` two guards up for the same house rule
+    applied to a wire value instead of a paragraph.
 
-    Before this function ascended, the four agreed only because the legacy
-    ``0x2000 + placement_index + 1`` formula happened to rise; the collision
+    Before this function ascended, the THREE agreed only because the legacy
+    ``0x2000 + placement_index + 1`` formula happened to rise (this sentence
+    counted four until round ``k1hsp0`` struck the census out of the list
+    two paragraphs up and left the tally behind -- pf-adversary of that
+    round reported the mismatch, and a docstring whose count disagrees with
+    its own list is how a reader concludes the census still depends on this
+    order); the collision
     is written up in ``tests/test_mob_identity_sign_inbound.py`` and in COO
     decision ``20260908_1642_COO-DECISION-roster-order-take-option-three``,
     which picked this fix over re-sorting ``load_roster`` (that would change

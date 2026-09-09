@@ -81,8 +81,13 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   0) for this scene, tagged ``PROVISIONAL-OWNER-DECREE-20260827-1445`` in
   the registry's ``spawn.provenance`` field.  ``resolve_columbus_arrival``
   now SUCCEEDS instead of refusing, and ``world_scene_entry.resolve_entry``
-  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445``
-  token the moment that spawn is actually used, so a decreed landing is
+  prints a ``SCENE_ENTRY ... source=PROVISIONAL-OWNER-DECREE-20260827-1445
+  from=caller_row`` token (the ``from=`` field ADDED round 1v5i3h,
+  pf-adversary D1 of round ioz8fd -- and note that the GREPPABLE part of
+  the token is unchanged, so ``grep source=PROVISIONAL-OWNER-DECREE``
+  still matches a kept zero row as well as this arrival; ``from=`` is
+  what tells them apart and any grep that needs to must include it)
+  the moment that spawn is actually used, so a decreed landing is
   never mistaken for a measured one.  This is not a retraction of the
   paragraph above: no player-arrival row has been found in the placements
   table, the decree is the owner's own exception to the no-invented-
@@ -100,8 +105,10 @@ BOUNDED-NEGATIVE, NEITHER MEASURED.
   happens to carry.  Nothing in the DB schema stops that row from ever
   naming 17, and nothing before this fix would have refused it once this
   scene had a spawn.  Closed with two additions, neither touching
-  ``runtime.py``: the registry's ``login_entry_allowed: false`` for scene 17
-  (``world_scene_registry_001.json``), and ``resolve_entry``'s own
+  ``runtime.py``: ~~the registry's ``login_entry_allowed: false`` for scene
+  17 (``world_scene_registry_001.json``)~~ -- STRUCK ROUND 1v5i3h (pf-adversary D11 of round ioz8fd): PANYA-DECISION 20260908_1218 opened the ordinary login door for 17, 126, 304 and 305, and LANE-A round 9lv3fa flipped the field. It reads TRUE today.  Only the
+  SECOND addition is still standing, and it is the one that matters here:
+  ``resolve_entry``'s own
   ``via_login`` parameter, which defaults to the login path's answer (fail
   closed) so the unmodified login call site stays safe for free.
   ``resolve_columbus_arrival`` below is the one sanctioned door through it,
@@ -454,11 +461,16 @@ def resolve_columbus_arrival(*, registry=None, emit=print):
     decree, above) also made it succeed for ANY caller of ``resolve_entry`` -
     including ``runtime.py``'s login path, which calls the exact same
     function with whatever ``scene_id`` a character's persisted row happens
-    to carry, and which nothing in this schema stops from ever being 17. The
+    to carry, and which nothing in this schema stops from ever being 17. ~~The
     registry's ``login_entry_allowed: false`` for scene 17 and the
     ``via_login=False`` passed below together keep that login path refusing a
     stored scene-17 row exactly as it did before this scene had a spawn at
-    all, while this function - the one sanctioned door to the decree - still
+    all~~ -- STRUCK ROUND 1v5i3h (pf-adversary D11 of round ioz8fd): PANYA-DECISION 20260908_1218 opened the ordinary login door for 17, 126, 304 and 305, and LANE-A round 9lv3fa flipped the field. It reads TRUE today.  The login path ADMITS a stored scene-17 row
+    now, by the owner's decision, and lands it on the row's own coordinates
+    (``world_scene_entry._ground_refutes_stored_row``).  What is unchanged,
+    and is what this paragraph is really for, is that ``via_login=False``
+    below keeps THIS function's synthetic arrival on the decreed point
+    whatever the login path does; this function - the one sanctioned door to the decree - still
     resolves it: ``synthetic_stored`` above is built fresh every call and is
     never a character's own persisted row, which is exactly the case
     ``via_login=False`` exists to name.

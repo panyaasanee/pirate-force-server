@@ -13,24 +13,41 @@ wire reaches the registry, not that any specific ``t_*.lua`` file now runs.
 WHY THIS DOES NOT RUN A SCRIPT, AND WHY THAT IS NOT A SHORTCUT.
 ``lua_api/trigger.py``'s own module docstring names the missing piece
 precisely: "the trigger-id -> script-file mapping ... this round did not go
-mine it". ``RE-273`` (``pf_bridge/notes_to_chief/
-20260906_1340_RE-273-RESULT-TGR-FILE-IS-THE-TRIGGER-ID-TO-LUA-TABLE.md``)
+mine it". A first pass, ``RE-273`` (``pf_bridge/notes_to_chief/
+20260906_1340_RE-273-RESULT-TGR-FILE-IS-THE-TRIGGER-ID-TO-LUA-TABLE.md``),
 measured that per-scene ``.tgr`` files DO carry a small ``trigger_ordinal``
-(u16) next to each script's filename -- but its own "what this ticket does
-NOT answer" section is explicit that this has NOT been shown to be the same
-number as the wire's ``0x0F`` tag value this hook reads (both are small
-per-scene integers; that resemblance is exactly the kind of "same because
-the numbers look alike" pairing the house rule forbids -- ``AGENTS.md``
-Section 7, "ก่อนประกาศว่า ... ไม่เคยวัด ต้อง grep ให้ครบ", and by the
-identical logic, no such id may be treated as identical to another without
-a measured crosswalk). So this module writes into the registry using the
-WIRE id as the key, names that choice as unproven, and dispatches to
-NOTHING -- no script file is looked up, no ``ScriptHost`` is built, no Lua
-runs. The day the crosswalk is measured (a follow-up RE ticket, or a GT),
-whatever dispatches a real script can either reuse this same registry key
-or discover it must not -- either way nothing this file does today has to
-be undone, because it never claimed the key meant anything beyond "the
-value the client's own 0x0F tag carried on this frame, in this scene".
+(u16) next to each script's filename, but left its own "what this ticket
+does NOT answer" section explicit that this had not been shown to be the
+same number as the wire's ``0x0F`` tag value this hook reads.
+
+MEASURED NOW, NOT STILL OPEN. The narrowed follow-up (``pf_bridge/
+notes_to_chief/20260906_1525_LANE-Q-RE-273-DECISION-*.md``, the same ticket
+continued) came back positive (``pf_bridge/notes_to_chief/
+20260908_2230_RE-273-RESULT-TGR-ORDINAL-COPIES-TO-WIRE-TAG-0F.md``): a
+POSITIVE field crosswalk traced through the client's own data flow, not a
+"the numbers happen to match" coincidence the house rule (``AGENTS.md``
+Section 7, "ก่อนประกาศว่า ... ไม่เคยวัด ต้อง grep ให้ครบ") forbids --
+the client reads the embedded u16 ordinal into the ``.tgr`` record at
+``record+0x4E``, then copies THOSE SAME 16 bits into the outbound vital at
+``vital+0x14``, which the serializer writes under tag ``0x0F``. So the
+wire id this hook already keys the registry on IS the ``.tgr`` ordinal,
+by construction, not by resemblance.
+
+THIS STILL DOES NOT RUN A SCRIPT, for a DIFFERENT reason now. The
+crosswalk (wire id <-> ordinal) is proven; the per-scene DATA (which
+ordinal maps to which ``.lua`` filename, in the scene the player is
+actually in) is not committed anywhere this lane can read without the
+live client -- ``gamedata/scene/*/*.placements.tsv`` (checked this round)
+carries mob-set placements, not trigger records, and the one full ``.tgr``
+dump this project has (``RE-289``, ``Bg3001`` only) lives in a letter, not
+a structured table. So this module still writes into the registry using
+the wire id as the key and dispatches to NOTHING -- no script file is
+looked up, no ``ScriptHost`` is built, no Lua runs -- but the key it
+writes is now a MEASURED ``.tgr`` ordinal, not an unproven guess, and the
+remaining gap is a data-extraction RE ticket (more scenes' ``.tgr`` files
+dumped and turned into a committed ordinal->filename table), not a
+crosswalk question. Whatever dispatches a real script can trust this
+registry key outright.
 
 WHY THE HOOK POINT ITSELF IS SAFE TO SHARE WITH LANE-A, MEASURED NOT ASSUMED
 (``pf_bridge/notes_to_chief/
@@ -150,7 +167,7 @@ def dispatch_line(session: object, payload: bytes) -> str:
     status = registry.next_status(folder, trigger_id)
     return (
         f"{TOKEN} scene={folder} wire_trigger_id={trigger_id} status={status}"
-        " key=WIRE_NATIVE_ID_UNPROVEN_VS_TGR_ORDINAL"
+        " key=WIRE_NATIVE_ID_EQUALS_TGR_ORDINAL_RE273"
     )
 
 

@@ -358,15 +358,26 @@ class CharacterLifecycle:
 
     def checkpoint(self, session_id, character, position):
         # CORE-REQUEST-018 / GT-106 (4).3: a character whose current scene is
-        # pinned persist_position_allowed=False (today: scene 17, no return
-        # path measured yet) must not have this checkpoint overwrite its
+        # pinned persist_position_allowed=False ~~(today: scene 17, no return
+        # path measured yet)~~ -- STRUCK, MEASURED FALSE, round ynfhoc
+        # (LANE-A), pf-adversary addendum on the sibling branch (B1): that
+        # set is EMPTY today (PANYA-DECISION 20260908_1218 opened scene 17
+        # along with the other five pins; verified this round with a live
+        # call, not read off a pin file by eye). No scene in the current
+        # registry refuses this write, so the branch below is dormant on
+        # every destination this project has pinned, not just quiet on 17 --
+        # must not have this checkpoint overwrite its
         # stored character_positions row at all -- writing scene_id=1 with
         # scene 17's XYZ (or scene 17 itself, which would then refuse the
         # character at next login per login_entry_allowed) is worse than
         # leaving the last-known-good row untouched. store.save_position
         # still verifies session/character ownership either way (pf-adversary
         # finding 1) -- a stale or hijacked session still raises here, only
-        # the column write itself is skipped.
+        # the column write itself is skipped.  THE MECHANISM STAYS (this is
+        # what ``world_scene_travel.py``'s own struck comment on the same
+        # topic calls "THE MECHANISM STAYS"): the day a future destination is
+        # pinned False again, this checkpoint honours it without another
+        # edit here.
         allowed = is_position_persist_allowed(position.scene_id, self._scene_registry)
         self.store.save_position(session_id, character.id, position, write_position=allowed)
 

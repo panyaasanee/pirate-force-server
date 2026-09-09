@@ -52,12 +52,20 @@ from pirateforce_foundation.gm import (  # noqa: E402
     login_scene_stage,
 )
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 C = login_scene_consume
 PORT_ROYAL = 1
-# Known to the client's scene table but pinned `login_entry_allowed=false`,
+# Known to the client's scene table and read as `login_entry_allowed=false`,
 # so a config naming it is WELL-FORMED and still inadmissible.  Asserted in
 # `RefusedSceneIsStillTheRightFixtureTests` rather than trusted, because the
 # whole D1 fix rests on this scene having exactly that property.
+#
+# THE PIN IS NOW A BEND, LANE-A round 3a11a0.  PANYA-DECISION 20260908_1218
+# opened every door in the shipped registry, so `_Case` installs the
+# pre-1218 reading of this one row (real row, real spawn, one boolean) for
+# the length of each case.  What the file measures is unchanged: a
+# well-formed config naming a scene the login refuses.
 REFUSED_SCENE = 17
 
 # Planted in the places a careless implementation would read from: the file
@@ -67,10 +75,12 @@ REFUSED_SCENE = 17
 SECRET = "hunter2-DO-NOT-PRINT-ME"
 
 
-class _Case(unittest.TestCase):
+class _Case(bent.BentDiskMixin, unittest.TestCase):
     GM_ACCOUNT = "GM_ONE"
+    BENT_SCENE = REFUSED_SCENE
 
     def setUp(self):
+        super().setUp()  # installs the bent disk reading; see the mixin
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = pathlib.Path(self._tmp.name)
@@ -785,19 +795,32 @@ class TheRemedyProbeIsClosedTests(unittest.TestCase):
 
 class RefusedSceneIsStillTheRightFixtureTests(unittest.TestCase):
     def test_the_refused_scene_is_known_but_not_admissible(self):
-        # If lane A ever pins scene 17 admissible, the D1 tests would
-        # silently stop testing the refusal path.  Fail loudly here instead.
+        """The fixture, checked rather than trusted -- under the bend.
+
+        ~~If lane A ever pins scene 17 admissible, the D1 tests would
+        silently stop testing the refusal path.~~ IT DID, LANE-A round
+        3a11a0 (PANYA-DECISION 20260908_1218), and the alarm worked: the
+        whole file moved onto the bent reading rather than quietly measuring
+        an admissible scene.  What is checked here now is that the bend
+        produces the property the D1 tests need -- known to the catalog,
+        refused by the predicate -- so a bend that stopped bending is still
+        caught loudly.
+        """
         from pirateforce_foundation.gm import (  # noqa: E402
             login_scene_admission,
             scene_catalog,
         )
 
+        shut = bent.shut_at_login(REFUSED_SCENE)
         self.assertTrue(scene_catalog.is_known_scene_id(REFUSED_SCENE))
         self.assertFalse(
-            login_scene_admission.login_entry_is_pinned(REFUSED_SCENE)
+            login_scene_admission.login_entry_is_pinned(
+                REFUSED_SCENE, scene_registry=shut
+            )
         )
         self.assertNotIn(
-            REFUSED_SCENE, login_scene_admission.stageable_scene_ids()
+            REFUSED_SCENE,
+            login_scene_admission.stageable_scene_ids(scene_registry=shut),
         )
 
 

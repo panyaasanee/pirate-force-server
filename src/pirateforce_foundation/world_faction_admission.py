@@ -13,7 +13,10 @@ PAIR and this file supplied the PLAYER half where there was none.
 
 WHY THAT VERSION ITSELF BECAME THE DEFECT (ka1-A round R321, `1255` S1,
 2026-09-06).  A GM single-use relog ticket landed a login inside scene 126
-(the Atlantis ocean panel, ``login_entry_allowed: false``, ``n_SAVE: 0`` --
+(the Atlantis ocean panel, ~~``login_entry_allowed: false``~~ -- STRUCK ROUND 1v5i3h (pf-adversary D11 of round ioz8fd): PANYA-DECISION 20260908_1218 opened the ordinary login door for 17, 126, 304 and 305, and LANE-A round 9lv3fa flipped the field. It reads TRUE today.
+that field read false ON THE DAY R321 MEASURED THIS, which is what the
+paragraph is reporting, so the history is right and only a reader taking it
+for today's pin would be misled -- ``n_SAVE: 0`` --
 a row this file's OLD rule refused on both conditions at once).  The refusal
 is silent by design (``runtime.py`` catches it and latches
 ``player_faction1_compose_refused_production_start_game``, no traceback, no

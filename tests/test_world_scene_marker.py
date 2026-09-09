@@ -561,9 +561,17 @@ class Scene14RegistryTests(unittest.TestCase):
             rather than quoted from this docstring.
         """
         self.assertTrue(self.target.login_entry_allowed)
-        # (2): the second boolean did NOT move, and a round that moves it is
-        # a different round with a different ruling behind it.
-        self.assertFalse(self.target.persist_position_allowed)
+        # (2): ~~the second boolean did NOT move, and a round that moves it
+        # is a different round with a different ruling behind it~~ -- that
+        # round arrived: LANE-A round 9lv3fa, 2026-09-08, on PANYA-DECISION
+        # 20260908_1218, with LANE-GM's 20260904_1930 item 2 (this pin
+        # measured as a MAJOR defect on a live /warp destination) and
+        # COO-DECISION 20260904_2050 item 3 behind it. The sentence above was
+        # right about the SHAPE - it took a separate ruling, and it got one.
+        # Defect (2) keeps its closure either way: what stops a (scene 1,
+        # volcano XYZ) row is the login-scene override writing the scene the
+        # character is actually in, not this flag refusing every write.
+        self.assertTrue(self.target.persist_position_allowed)
         # (3): the defect that was open when the old test was written.
         self.assertTrue(
             world_faction_admission.admits(VOLCANO_SCENE_ID, self.registry))

@@ -52,6 +52,7 @@ from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
 from dataclasses import replace  # noqa: E402
 from unittest import mock  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
+import pf_bent_scene_registry as bent_registry  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
@@ -634,14 +635,41 @@ class ConsoleLinesTests(_SeamCase):
         self.assertIn("ECHO", echo_lines[0])
         self.assertIn("verdict=OK", echo_lines[0])
         self.assertIn("TRANSPORT_RESYNC", echo_lines[1])
-        # `applied=` is the whole point of the line: on the shipped registry
-        # marker 17 is login-barred, so the relabel is REFUSED and the
-        # console must say so next to a scene number it did not adopt.
-        self.assertIn("applied=0", echo_lines[1])
-        self.assertIn("scene=%d" % tc.marker_destination(MARKER).scene_id,
-                      echo_lines[1])
+        # `applied=` is the whole point of the line, and after
+        # PANYA-DECISION 20260908_1218 the shipped registry ADMITS marker
+        # 17's destination at login, so the relabel is applied here.  The
+        # digit is read out of the registry rather than spelled, so this
+        # case says what the console must agree with instead of pinning
+        # which way a row happens to be set today; the REFUSED reading is
+        # driven, under a bent row, by the case below -- neither half is
+        # a skip.
+        scene_id = tc.marker_destination(MARKER).scene_id
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        self.assertIn("applied=1", echo_lines[1])
+        self.assertIn("scene=%d" % scene_id, echo_lines[1])
         self.assertIn("TRANSPORT", echo_lines[2])
         self.assertNotIn("RESYNC", echo_lines[2])
+
+    def test_a_refused_relabel_still_says_applied_0_on_the_console(self):
+        """The other reading of the same line, kept alive by a bent row.
+
+        Before 1218 the shipped registry drove this branch on its own; it
+        no longer does, and the console wording for a REFUSED relabel is
+        exactly what an attended tester needs to tell "the scene moved"
+        from "the scene did not".  `pf_bent_scene_registry` shuts the one
+        row and asserts the bend took, so this is the refusal path itself
+        and not a fixture proving nothing.
+        """
+        scene_id = tc.marker_destination(MARKER).scene_id
+        with bent_registry.process_reads(bent_registry.shut_at_login(scene_id)):
+            state = self._login_and_start("m2consolebarred")
+            self._record(state)
+            self._lines(self._tick, state)
+            echo_lines = self._lines(self._echo, state)
+            self.assertEqual(len(echo_lines), 3)
+            self.assertIn("TRANSPORT_RESYNC", echo_lines[1])
+            self.assertIn("applied=0", echo_lines[1])
+            self.assertIn("scene=%d" % scene_id, echo_lines[1])
 
     def test_a_refused_replay_says_why_on_the_console(self):
         state = self._login_and_start("m2consolerefuse")
@@ -814,6 +842,35 @@ class _JourneyFixture(_SeamCase):
         self._tick(state)
         actions = self._echo(state, marker_id=marker_id)
         return state, actions
+
+    def test_every_marker_this_seam_can_prompt_for_is_now_login_accepted(self):
+        """~~test_every_marker_this_seam_can_prompt_for_a_sea_scene_is_login_
+        barred~~ -- INVERTED, LANE-A round 9lv3fa, 2026-09-08.
+
+        This case was written to "fail loudly the day the registry changes
+        and this refusal stops being necessary".  That day is
+        PANYA-DECISION 20260908_1218, and it did fail loudly, so here is what
+        it means rather than a deleted assertion:
+
+        WHAT THIS CLASS PINS IS UNCHANGED.  The seam still does not write the
+        durable row at send time.  What changed is WHICH reason holds it.  It
+        used to have two: the client has not confirmed the move yet
+        (COO-DECISION 20260828_2130 - a frame that left the server is a
+        REQUEST, and the durable write happens on the first TargetPos after
+        it), and the destination was barred at login so a written row would
+        have locked the character out.  1218 removed the second.  The first
+        is untouched by 1218 and is the whole reason on its own; every other
+        case in this class drives it directly.
+        """
+        for marker_id in (17, 343, 345):
+            destination = tc.marker_destination(marker_id)
+            self.assertTrue(
+                warp_scene_persist.login_would_accept(destination.scene_id),
+                "marker %d -> scene %d must be login-accepted under 1218"
+                % (marker_id, destination.scene_id),
+            )
+        self.assertTrue(warp_scene_persist.login_would_accept(
+            tc.marker_destination(1).scene_id))
 
     @contextlib.contextmanager
     def _registry_open_at_login_on(self, scene_id):
@@ -1061,18 +1118,31 @@ class SelectedSceneIsRelabelledOnlyWhenTheLoginCanTakeItBackTests(_JourneyFixtur
         """
         marker_id = 14
         scene_id = self._destination_scene(marker_id)
-        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
-        self.assertFalse(
-            world_scene_travel.is_position_persist_allowed(scene_id),
-            "this marker must be the login-open persist-barred shape or it "
-            "proves nothing")
-        state, actions = self._journey("m2persistbarred", marker_id=marker_id)
-        self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
-        self.assertEqual(state.foundation.selected.position.scene_id, 1)
-        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
-        self.assertIn(
-            "lane_a_m2_transport_resync_refused_persist_barred_%d" % scene_id,
-            state.events)
+        # CORRECTED, LANE-A round ioz8fd: 1218 opened scene 14's write-back
+        # pin too, so no SHIPPED row carries the login-open persist-barred
+        # shape any more and this case used to read the fence off data that
+        # had stopped having it.  The fence is still in the code, so the row
+        # is bent shut here instead -- the edit an operator makes to the
+        # JSON between two boots -- and the bend is asserted before the
+        # journey runs.
+        with bent_registry.process_reads(
+                bent_registry.unpersisted(scene_id)) as bent:
+            self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+            self.assertFalse(
+                world_scene_travel.is_position_persist_allowed(scene_id),
+                "the fixture bent nothing: this row must be login-open and "
+                "persist-barred or the case proves nothing")
+            self.assertIsNotNone(bent[scene_id].spawn)
+            state, actions = self._journey(
+                "m2persistbarred", marker_id=marker_id)
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            self.assertEqual(state.foundation.selected.position.scene_id, 1)
+            self.assertFalse(
+                getattr(state, "scene_label_is_server_guess", False))
+            self.assertIn(
+                "lane_a_m2_transport_resync_refused_persist_barred_%d"
+                % scene_id,
+                state.events)
 
     def test_a_same_scene_journey_clears_nothing(self):
         """The early return, pinned - a mutant deleting it survived the suite.

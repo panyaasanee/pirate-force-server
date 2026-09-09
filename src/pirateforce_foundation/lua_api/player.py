@@ -644,12 +644,22 @@ class PlayerContext:
 #: a production singleton, mirroring ``lua_api.trigger.DEFAULT_CONTEXT``.
 DEFAULT_CONTEXT = PlayerContext()
 
-#: The remaining 62 names, one of seven grouped, grep-grounded reasons each
+#: The remaining names -- 61 of them the day this line was last counted
+#: (2026-09-08, LANE-A round 1v5i3h, answering LANE-Q's letter
+#: ``20260908_1648_LANE-Q-TO-LANE-A-the-player-stub-count-moved-again``)
+#: -- one of seven grouped, grep-grounded reasons each
 #: -- no per-name guess, the same posture ``lua_api.quest.STILL_STUBBED``
 #: takes for its own DB-blocked names. Category text is shared verbatim
 #: across every name in that category (the same repetition
 #: ``lua_api.quest.STILL_STUBBED`` already uses for its own LANE-DB-blocked
 #: entries), not independently reworded per name.
+#: DO NOT TRUST THE NUMBER IN THIS COMMENT, AND DO NOT COPY IT ANYWHERE:
+#: it has now gone stale twice (63 -> 62 -> 61) because names leave this
+#: tuple every time a lane makes one real. ``len(STILL_STUBBED)`` is the
+#: only count that cannot be wrong, and it is what
+#: ``tests/test_script_lua_api_player.py`` pins -- the partition
+#: (STILL_STUBBED | REAL_METHODS == every Player name, and the two do not
+#: overlap), never a literal total.
 _ITEM_STATE = (
     "needs per-character inventory/equipment state; a LANE-DB column this "
     "lane does not own (Player.* item/exp/money queue item, not built yet)"

@@ -58,6 +58,8 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 from pirateforce_foundation.model import Position  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 # Pinned as literals, not read from the registry: the point of this file is
 # to fail when the registry moves, not to agree with whatever it says today.
 #
@@ -107,7 +109,13 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # joined the same way, TENTH AND LAST door in the same queue -- built,
 # wired and opened in one round.  With this scene, every one of the ten
 # doors round 12lyda surveyed is open at login.
-ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
+# WIDENED LANE-A round 3a11a0, 2026-09-08: 17, 126, 304 and 305 joined on
+# PANYA-DECISION 20260908_1218 (`pirate-force-server#1137`), which opened
+# the last four shut doors in the shipped registry.  Nothing is shut now,
+# so the REFUSAL fixtures below moved from a scene id to a bent reading of
+# the registry -- see `tests/pf_bent_scene_registry.py`.
+ADMISSIBLE_TODAY = (
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 17, 126, 130, 278, 304, 305, 997)
 # The GM-gated (single-use) map's own way out.  ~~Wider than the plain set
 # above by exactly one scene since round R249: lane A landed the scene-126
 # registry row, and `CORE-REQUEST-GM-038`'s single-use widening admits it
@@ -120,6 +128,13 @@ ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
 # the derivation rather than as a literal so it follows the map instead of
 # a memory of it.  See `gm/login_scene_admission.single_use_entry_is_
 # admissible`.
+# MERGE NOTE (LANE-A round 9ic0io, 2026-09-09): the two sides of this
+# conflict were about different halves of the line.  This branch widens
+# `ADMISSIBLE_TODAY` because it is the branch that opens 17/126/304/305 in
+# the registry; LANE-GM's landed change rewrites `SINGLE_USE_ADMISSIBLE_
+# TODAY` as a derivation instead of a literal.  Both are kept: with the
+# sanction map now empty on main, the derived union is exactly
+# `ADMISSIBLE_TODAY`, which is the same answer LANE-GM measured.
 SINGLE_USE_ADMISSIBLE_TODAY = tuple(
     sorted(set(ADMISSIBLE_TODAY) | set(login_scene_admission.SANCTIONED_BARRED_SCENES))
 )
@@ -139,6 +154,14 @@ BARRED_AT_LOGIN = 17
 # uses, adopted here so this file stops needing to move this constant
 # every time a door opens.
 NAMED_BUT_UNPINNED = 12
+# What the two sets read while `bent.BentDiskMixin` holds the sea scene
+# shut, which is the reading every refusal case in this file is graded
+# against.  Derived, not typed out, so opening or shutting another door
+# moves them both without an edit here.
+ADMISSIBLE_WITH_THE_SEA_SHUT = tuple(
+    scene_id for scene_id in ADMISSIBLE_TODAY if scene_id != BARRED_AT_LOGIN)
+SINGLE_USE_WITH_THE_SEA_SHUT = tuple(
+    sorted(set(ADMISSIBLE_WITH_THE_SEA_SHUT) | {126}))
 
 
 class ThePredicateTests(unittest.TestCase):
@@ -155,8 +178,30 @@ class ThePredicateTests(unittest.TestCase):
                 )
 
     def test_a_scene_barred_at_login_is_refused(self):
+        """The shipped registry bars nobody since 1218, so this bends one.
+
+        The predicate still has to refuse a barred row -- that is the whole
+        lockout this module exists to prevent -- and the row it is asked
+        about is the real scene 17 with its real spawn and one boolean
+        flipped, which is the edit an operator makes to the shipped JSON.
+        """
         self.assertFalse(
-            login_scene_admission.login_entry_is_pinned(BARRED_AT_LOGIN)
+            login_scene_admission.login_entry_is_pinned(
+                BARRED_AT_LOGIN, scene_registry=bent.shut_at_login()
+            )
+        )
+
+    def test_the_shipped_registry_bars_nobody_at_login(self):
+        """The other half of 1218, so the bend above cannot hide a regression.
+
+        Without this, re-pinning a door shut in the shipped file would leave
+        every case in this class green: they all ask a bent reading now.
+        """
+        registry = world_scene_travel.load_scene_registry()
+        self.assertEqual(
+            [],
+            [row.n_id for row in registry.destinations
+             if not row.login_entry_allowed],
         )
 
     def test_a_named_but_unpinned_scene_is_refused(self):
@@ -248,21 +293,31 @@ class TheRealLoginPathAgreesTests(unittest.TestCase):
         Without this, `return False` would pass every test above and quietly
         take the lane's only convenience away.
         """
-        registry = world_scene_travel.load_scene_registry()
-        admitted = set(login_scene_admission.stageable_scene_ids())
-        refused_by_admission = [
-            target.n_id
-            for target in registry.destinations
-            if target.n_id not in admitted
-        ]
-        self.assertTrue(
-            refused_by_admission, "a registry with nothing to refuse proves "
-            "nothing here -- pin the case back when lane A adds one"
-        )
-        for scene_id in refused_by_admission:
-            with self.subTest(scene_id=scene_id):
-                with self.assertRaises(world_scene_entry.SceneEntryRefused):
-                    self._login_call(scene_id)
+        # SINCE 1218 THE SHIPPED FILE REFUSES NOBODY, so the case that used
+        # to read the file now reads a bend of it: the real rows, the real
+        # spawns, scene 17's login boolean flipped back to what it was on
+        # 2026-09-07.  The question survives its data -- "is admission
+        # refusing for nothing" is asked of whatever registry is in front of
+        # it, and `return False` still cannot pass it.
+        bent_registry = bent.shut_at_login()
+        with bent.patch_disk(bent_registry):
+            admitted = set(login_scene_admission.stageable_scene_ids())
+            refused_by_admission = [
+                target.n_id
+                for target in bent_registry.destinations
+                if target.n_id not in admitted
+            ]
+            self.assertIn(
+                BARRED_AT_LOGIN, refused_by_admission,
+                "the bend did not reach admission, so this case measures "
+                "nothing",
+            )
+            for scene_id in refused_by_admission:
+                with self.subTest(scene_id=scene_id):
+                    with self.assertRaises(
+                        world_scene_entry.SceneEntryRefused
+                    ):
+                        self._login_call(scene_id)
 
 
 class TheSpawnConditionTests(unittest.TestCase):
@@ -401,11 +456,16 @@ class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
         # 11 in round 68mm02, 130 this round (yfbqmg); 997 is the row this
         # test bends into UNNAMED, which is why it is the one id missing
         # here.
+        # 17, 126, 304 and 305 joined in LANE-A round 3a11a0 on
+        # PANYA-DECISION 20260908_1218; 997 is still the row this test bends
+        # into UNNAMED, which is why it is the one id missing here.
         self.assertEqual(
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278), offered)
+            tuple(scene_id for scene_id in ADMISSIBLE_TODAY
+                  if scene_id != 997),
+            offered)
 
 
-class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):
+class TheConsoleLineNeverAltersDispatchTests(bent.BentDiskMixin, unittest.TestCase):
     """`session.py`'s house rule, applied to this round's diagnostic.
 
     MEASURED by pf-adversary: the bridge console is `cp874`, an operator
@@ -418,6 +478,7 @@ class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):
     """
 
     def setUp(self):
+        super().setUp()  # installs the bent disk reading; see the mixin
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "standalone.json"
@@ -477,10 +538,11 @@ class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):
         self.assertIn("names a", str(caught.exception))
 
 
-class TheLoaderTests(unittest.TestCase):
+class TheLoaderTests(bent.BentDiskMixin, unittest.TestCase):
     """Both config files, held to the rule, at the moment they are read."""
 
     def setUp(self):
+        super().setUp()  # installs the bent disk reading; see the mixin
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.gm_path = Path(self.tmp.name) / "gm_login_scene.json"
@@ -519,7 +581,7 @@ class TheLoaderTests(unittest.TestCase):
         # The way out is in the error, not in a doc somebody has to find.
         # The GM-gated map's way out is the SINGLE-USE set, not the plain
         # one -- see `SINGLE_USE_ADMISSIBLE_TODAY` above.
-        self.assertIn(str(SINGLE_USE_ADMISSIBLE_TODAY), message)
+        self.assertIn(str(SINGLE_USE_WITH_THE_SEA_SHUT), message)
 
     def test_the_standalone_map_refuses_a_barred_scene(self):
         self._write(
@@ -547,7 +609,7 @@ class TheLoaderTests(unittest.TestCase):
         self.assertIn("plain_tester", console)
         self.assertIn(f"scene_id={BARRED_AT_LOGIN}", console)
         self.assertIn(str(self.standalone_path), console)
-        self.assertIn(f"stageable={ADMISSIBLE_TODAY}", console)
+        self.assertIn(f"stageable={ADMISSIBLE_WITH_THE_SEA_SHUT}", console)
 
     def test_a_path_with_separators_in_it_is_named_verbatim(self):
         """Round 7gplcy.  The line has to be PASTABLE, not merely present.

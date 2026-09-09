@@ -30,6 +30,7 @@ Nobody has stood in scene 305 in this project's history.
 from __future__ import annotations
 
 import sys
+import dataclasses
 import unittest
 from pathlib import Path
 
@@ -50,6 +51,22 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 PALE_SILVER_SEA = 305
 ROSTER_COUNT = 59
 
+
+
+# LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218 opened this
+# scene's login door, which is exactly the "different decision" the third
+# arm's own tests below said would change what they mean.  It did, so those
+# tests now run against a BENT registry - the shipped rows with this one
+# scene's door shut again - and keep grading THE ARM: that it admits the
+# scene on its own, without the login door, and that revoking it darkens the
+# scene.  What the shipped registry says is asserted separately, by name, so
+# the bend can never hide a door that quietly closed for real.
+def _registry_with_this_door_shut():
+    real = world_scene_travel.load_scene_registry()
+    return world_scene_travel.SceneRegistry(destinations=tuple(
+        dataclasses.replace(row, login_entry_allowed=False)
+        if row.n_id == PALE_SILVER_SEA else row
+        for row in real.destinations))
 
 class TheSceneIsRegisteredInBothTables(unittest.TestCase):
     def test_the_seam_table_names_this_lanes_composer(self) -> None:
@@ -89,7 +106,7 @@ class TheSceneIsRegisteredInBothTables(unittest.TestCase):
 class ItIsTheThirdArmThatAdmitsIt(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.registry = world_scene_travel.load_scene_registry()
+        cls.registry = _registry_with_this_door_shut()
 
     def test_the_real_registry_admits_scene_305(self) -> None:
         self.assertTrue(
@@ -143,7 +160,7 @@ class TheComposerActuallyComposesForAGmStandingThere(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.legacy = load_legacy(LEGACY_PATH)
-        cls.registry = world_scene_travel.load_scene_registry()
+        cls.registry = _registry_with_this_door_shut()
         cls.anchor = world_scene_travel.spawn_position(
             world_scene_travel.destination(PALE_SILVER_SEA))
 

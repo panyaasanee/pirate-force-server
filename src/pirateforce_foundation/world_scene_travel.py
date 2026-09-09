@@ -190,17 +190,23 @@ DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID = 11
 NAVY_TRAINING_CAMP_SCENE_ID = 130
 # The ocean panel, NOT an island and NOT a route: see
 # ``world_m2_sea_destination`` for why 126 is the name a Columbus option
-# advertises rather than where it sends you.  Its login door is shut and
-# this constant does not open it.
+# advertises rather than where it sends you.  ~~Its login door is shut and
+# this constant does not open it.~~ STRUCK round 949y62 (LANE-A),
+# pf-adversary D9 of round sbqohw: PANYA-DECISION 20260908_1218 opened this
+# door and the registry on this branch reads ``login_entry_allowed: True``
+# for 126.  The half that is still true is the half about this CONSTANT: it
+# names a scene, it has never been what opens or shuts one.
 ATLANTIS_OCEAN_PANEL_SCENE_ID = 126
 # The ship, NOT the ocean panel: row 3021 (``columbus_quest_dispatch``) is
 # the flagless dispatch that already lands a player here, and
 # ``world_m2_sea_destination`` is the module that measured why this id and
 # 126 differ.  This constant does not touch that dispatch, and does not
-# flip this scene's own ``login_entry_allowed`` (still false, guarding the
-# ordinary login path per its own registry comment) - see
-# ``world_population_bg1001``'s own docstring for exactly what remains
-# closed this round.
+# flip this scene's own ``login_entry_allowed`` ~~(still false, guarding the
+# ordinary login path per its own registry comment)~~ - STRUCK round 949y62
+# (LANE-A), pf-adversary D9 of round sbqohw: 1218 opened it and the registry
+# on this branch reads True for 17.  What did not change is that this
+# CONSTANT does not decide it - see ``world_population_bg1001``'s own
+# docstring.
 SHIP_AT_SEA_SCENE_ID = 17
 # The first of the two seas a crossing at scene 126's own map edge leads to
 # (``world_sea_edge_crossing``'s ``{7: 304, 69: 305}``).  Its arrival point
@@ -277,18 +283,22 @@ CENSUS_SOURCE = "bg0001_census"
 # has shipped: "bg0004_roster" is ``world_population_bg0004.py``'s own name for
 # itself (built, verified, NOT wired round 6p22bu; this round is the wiring
 # half of that pair, same split bg0015's own history shows).  Scene 4's
-# registry row still reads ``login_entry_allowed: false`` (COO-DECISION
-# 2026-08-30T14:41+07:00 approving the crosswalk explicitly said not to flip
-# it here) and no login/crossing path reaches scene 4 today, so this row is
-# inert on ``main`` the same way scene 14's row was inert between its own
-# build and open rounds: registered, refused by the admission check in
+# registry row ~~still reads~~ READ AT THE TIME ``login_entry_allowed:
+# false`` (COO-DECISION 2026-08-30T14:41+07:00 approving the crosswalk
+# explicitly said not to flip it here) ~~and no login/crossing path reaches
+# scene 4 today, so this row is inert on ``main``~~ - STRUCK round 949y62
+# (LANE-A), pf-adversary D9 of round sbqohw: measured True on this branch,
+# so the present-tense half of this sentence is false and the inertness it
+# claims is gone.  Kept struck rather than deleted because the WIDENED note
+# is a dated record of what that round did - the same way scene 14's row was
+# inert between its own build and open rounds: registered, refused by the admission check in
 # ``lane_hooks/lane_a_scene_census.py``, never invoked in production.
 # WIDENED 2026-08-31 (round c42axq, LANE-A) with the fifth composer this lane
 # has shipped: "bg0010_roster" is ``world_population_bg0010.py``'s own name
 # for itself (built, verified, NOT wired round u3jo4g; this round is the
 # wiring half of that pair, same split bg0004's own history shows -- build
-# u3jo4g, wire c42axq).  Scene 10's registry row still reads
-# ``login_entry_allowed: false`` at that point (opened later the same round
+# u3jo4g, wire c42axq).  Scene 10's registry row ~~still reads
+# ``login_entry_allowed: false``~~ READ false AT THAT POINT (opened later the same round
 # sequence, round 3t75jw), so this row was inert on ``main`` between those
 # two rounds the same way scene 4's row was inert between its own build and
 # open rounds: registered, refused by the admission check in
@@ -374,8 +384,11 @@ CENSUS_SOURCE = "bg0001_census"
 # is ``world_population_bg3001.py``'s own name for itself, over scene 126
 # (Bg3001, "Atlantis"), an ``n_SCENE_TYPE 8`` OCEAN PANEL whose cast is
 # ships, islands-as-actors and weather markers rather than townspeople.
-# THE DOOR STAYS SHUT: scene 126's registry row still reads
-# ``login_entry_allowed: false`` and this round did not touch it
+# ~~THE DOOR STAYS SHUT: scene 126's registry row still reads
+# ``login_entry_allowed: false``~~ STRUCK round 949y62 (LANE-A),
+# pf-adversary D9 of round sbqohw - TRUE FOR ROUND 4uztfj, FALSE NOW:
+# PANYA-DECISION 20260908_1218 opened it and this branch measures True.
+# The rest of this note stands: that round did not touch it
 # (``COO-DECISION 20260829_1444`` wants an attended var2 test before any
 # flip; ``CHIEF-DECISION 20260829_1603`` item 1 pinned the row shut on
 # purpose).  This row is therefore inert for the ordinary login path -
@@ -393,9 +406,11 @@ CENSUS_SOURCE = "bg0001_census"
 # itself, over scene 17 (Bg1001, "one ship at sea") - COO-DECISION
 # ``pf_bridge/notes_to_chief/20260905_0848_...`` approved the identity/
 # census pair as this round's main task, condition (c): actor/census only,
-# nothing hostile.  THE DOOR STAYS EXACTLY AS IT WAS: scene 17's registry
-# row still reads ``login_entry_allowed: false`` and this round does not
-# touch it - that field guards the ORDINARY LOGIN path specifically (see
+# nothing hostile.  ~~THE DOOR STAYS EXACTLY AS IT WAS: scene 17's registry
+# row still reads ``login_entry_allowed: false``~~ STRUCK round 949y62
+# (LANE-A), pf-adversary D9 of round sbqohw - TRUE FOR ROUND vwekfq, FALSE
+# NOW: 1218 opened it and this branch measures True.  That round still does
+# not touch it - that field guards the ORDINARY LOGIN path specifically (see
 # the row's own ``login_entry_allowed_because``, and the defect round
 # ``0z3kjx`` closed by pinning it false), and ``lane_hooks.lane_a_scene_
 # census.scene_is_open_to_players`` reads that SAME field for every
@@ -416,9 +431,12 @@ CENSUS_SOURCE = "bg0001_census"
 # satisfies ``has_authored_entry``, so a bare GM ``/warp 304`` already
 # resolves and lands a session here TODAY - and this round adds the third
 # admission arm in ``lane_hooks/lane_a_scene_census.py`` that lets the
-# composer answer for exactly that session.  THE LOGIN DOOR IS UNTOUCHED:
+# composer answer for exactly that session.  ~~THE LOGIN DOOR IS UNTOUCHED:
 # scene 304's registry row still reads ``login_entry_allowed: false``, the
-# ordinary login path still refuses it at ``resolve_entry``, and ``/warp``
+# ordinary login path still refuses it at ``resolve_entry``~~ STRUCK round
+# 949y62 (LANE-A), pf-adversary D9 of round sbqohw - TRUE FOR THAT ROUND,
+# FALSE NOW: PANYA-DECISION 20260908_1218 opened 304 and the ordinary login
+# path resolves it.  What is unchanged is the last clause: ``/warp``
 # itself is still gated on ``accounts.is_gm_account``.
 #
 # WIDENED AGAIN 2026-09-06 (round ``9zj630``, LANE-A) with the fifteenth
@@ -429,8 +447,10 @@ CENSUS_SOURCE = "bg0001_census"
 # block ``#843`` pinned already satisfies ``has_authored_entry``, so a bare
 # GM ``/warp 305`` resolves today, and the third admission arm has named
 # this scene since round ``dyi95m`` - what it lacked until this round was a
-# composer to answer with.  THE LOGIN DOOR IS UNTOUCHED here too: scene
-# 305's registry row still reads ``login_entry_allowed: false``.
+# composer to answer with.  ~~THE LOGIN DOOR IS UNTOUCHED here too: scene
+# 305's registry row still reads ``login_entry_allowed: false``.~~ STRUCK
+# round 949y62 (LANE-A), same finding and same reason as the 304 paragraph
+# above: 1218 opened this door too.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
@@ -570,6 +590,24 @@ class SceneDestination:
     spawn_provenance: str | None
     ground_z_spread: float | None
     ground_extent: tuple[float, float] | None
+    # The MEASURED placement box, ``(x_min, x_max, y_min, y_max)``, straight
+    # off the same ``ground`` block ``ground_extent`` is derived from.
+    #
+    # ADDED round 1v5i3h (LANE-A) to pay pf-adversary D2 of round ioz8fd.
+    # ``ground_extent`` is a pair of SPANS, and every reader of it centres
+    # those spans on ``spawn`` -- which is fine for a measured spawn and
+    # says nothing at all for a decreed one, so ``_ground_evidence``
+    # correctly refuses to run that test on scene 17.  The consequence
+    # nobody had noticed is that the login path then reported "no measured
+    # ground refutes this row" for a scene carrying the four numbers below,
+    # three fields away in the same JSON object.  A box does not need a
+    # spawn to be centred on, so with this field the login path can consult
+    # the measurement instead of reporting its absence.
+    #
+    # It is the PLACEMENT box, not terrain -- read the ``limit`` field of
+    # any ``ground`` block before using it as one.  ``world_scene_entry``
+    # is the only reader today and uses it only to refute, never to admit.
+    ground_box: tuple[float, float, float, float] | None
     save_flag: int
     entry_marker: int
     camera_type: int
@@ -750,6 +788,16 @@ PROVISIONAL_SPAWN_PROVENANCE_PREFIX = "PROVISIONAL-OWNER-DECREE"
 # path that resolves it on purpose (today: columbus_quest_dispatch.
 # resolve_columbus_arrival, via resolve_entry's own via_login=False) - not a
 # door a stored row can open by accident.
+#
+# LANE-A round 9lv3fa, 2026-09-08: no destination carries False any more.
+# PANYA-DECISION 20260908_1218 lifted 17, 126, 304 and 305 - the whole set -
+# on the owner's permanent rule that a login puts a character back where it
+# logged out from IN EVERY SCENE.  The default above is unchanged and the
+# refusal it feeds (world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN) is
+# unchanged; what changed is that the CURRENT registry has nobody to refuse.
+# 1218 keeps the mechanism for a scene added later, and turns the ordering
+# around for it: a new destination earns a measured spawn BEFORE it is pinned
+# at all, instead of being pinned with the login door shut behind it.
 DEFAULT_LOGIN_ENTRY_ALLOWED = True
 
 # ``persist_position_allowed`` distinguishes "safe to write this character's
@@ -766,13 +814,55 @@ DEFAULT_LOGIN_ENTRY_ALLOWED = True
 # wrong twice over: scene 1 is the wrong scene, and (-149, -1250, 745) is not
 # a position anybody measured as valid ground for scene 1.
 #
-# WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD".  The
+# ~~WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD"~~
+# -- STRUCK IN FULL, LANE-A round 9lv3fa, 2026-09-08, by PANYA-DECISION
+# 20260908_1218.  The paragraph below is kept because it is the honest record
+# of why scene 17 was pinned False for twelve days, and because its argument
+# is worth reading once: it rests ENTIRELY on scene 17 being shut at login,
+# and the owner has now opened that door in every scene.  Read it as history.
+# WHAT IS TRUE AS OF THIS COMMIT: no destination in this registry is pinned
+# False, on either flag.  1218's rule is that a character logs back in at the
+# point it logged out from, in every scene, which cannot hold for a scene
+# whose position is never written; refusing to write is now the thing that
+# strands a player, not the thing that protects one.  The GT-106 row remains
+# a real bug - but it is a bug in what the WRITER wrote (scene_id=1 carrying
+# scene 17's XYZ, a pair nobody chose), and a write gate that answers "write
+# nothing anywhere" was never a fix for a writer that writes the wrong scene
+# number.  That belongs to lifecycle.checkpoint and its own gate test.
+# THE MECHANISM STAYS: is_position_persist_allowed still refuses a pinned
+# False, for a destination this project catches corrupting rows in future.
+#
+# ~~WHY THE FIX PINNED HERE IS "DO NOT PERSIST", NOT "PERSIST 17 INSTEAD"~~.  The
 # obvious-looking correction - write scene_id=17 with that XYZ - drives
 # straight into the trap round 0z3kjx built ``login_entry_allowed`` to catch:
-# scene 17 is pinned ``login_entry_allowed: false`` precisely because a
-# character's own persisted row naming 17 is refused at the next login
-# (``world_scene_entry.resolve_entry``, ``REFUSED_NOT_ALLOWED_AT_LOGIN``) -
-# and scene 17 has no known way back in-game (``n_MARKER=0``, ~~RE-077 open~~
+# scene 17 ~~is pinned ``login_entry_allowed: false``~~ WAS PINNED SHUT AT
+# LOGIN UNTIL PANYA-DECISION 20260908_1218 (struck
+# round 949y62, LANE-A, pf-adversary D9 of round sbqohw) precisely because a
+# character's own persisted row naming 17 was refused at the next login
+# (``world_scene_entry.resolve_entry``, ``REFUSED_NOT_ALLOWED_AT_LOGIN``).
+# ~~THE PARAGRAPH'S CONCLUSION IS UNCHANGED AND IS NOW CARRIED BY A DIFFERENT
+# MECHANISM: the row is still not persisted as scene 17, and a login that
+# lands on one is walked home by ``world_m2_return_leg.login_entry``~~ --
+# STRUCK, MEASURED FALSE, round ynfhoc (LANE-A), pf-adversary addendum on
+# this same branch (B1): BOTH halves are false today, verified this round.
+# (1) ``is_position_persist_allowed(17)`` is ``True`` on this branch --
+# PANYA-DECISION 20260908_1218 opened it along with the other five pins,
+# so a row IS now written as scene 17 (checked with a live call against
+# the loaded registry, not read off the pin file by eye). (2)
+# ``world_m2_return_leg.login_entry`` has ZERO callers anywhere in
+# ``src/`` or ``tools/`` (``grep -rn "login_entry(" src/ tools/`` returns
+# nothing but its own ``def``) -- it composes and reports, it is not wired
+# into any login path, so no character is walked anywhere by it today.
+# The gap this leaves open, right now, is real: a character whose row
+# persists as scene 17 (COO-DECISION 20260908_1218's headline case) and who
+# then logs back in resolves at scene 17 with no dispatch site anywhere in
+# this tree able to send them back out -- that is exactly the one-way-scene
+# hazard ``world_m2_return_leg`` names and does not yet close. Wiring
+# ``login_entry`` into the login call site is ``runtime.py``'s to do, per
+# COO-DECISION referenced in NOW.md, and has not landed yet as of this
+# commit.
+# STILL TRUE TODAY, UNCHANGED BY THE ABOVE: scene 17 has no known way
+# back in-game (``n_MARKER=0``, ~~RE-077 open~~
 # RE-077 closed 2026-08-26 without naming a way home - see the docstring,
 # ``return_ticket=REQUIRED`` on GT-106's own console line). Writing scene_id=17
 # today would not fix the wrong row, it would turn "wrong row" into "player
@@ -1089,6 +1179,12 @@ def load_scene_registry(path: str | Path = REGISTRY_PATH) -> SceneRegistry:
                 None if ground is None
                 else (_require_float(ground["extent_x"], "extent x"),
                       _require_float(ground["extent_y"], "extent y"))),
+            ground_box=(
+                None if ground is None
+                else (_require_float(ground["x_min"], "x min"),
+                      _require_float(ground["x_max"], "x max"),
+                      _require_float(ground["y_min"], "y min"),
+                      _require_float(ground["y_max"], "y max"))),
             save_flag=table_row["n_SAVE"],
             entry_marker=table_row["n_MARKER"],
             camera_type=table_row["n_CAMERA_TYPE"],
@@ -1273,6 +1369,25 @@ def is_position_persist_allowed(
     True - the same "nothing changes for a scene that was never part of the
     incident" contract ``DEFAULT_LOGIN_ENTRY_ALLOWED`` makes, applied to a
     default that points the other way for a different reason.
+
+    ~~(today: only 17)~~ -- STRUCK, LANE-A round ``9lv3fa``, 2026-09-08:
+    NO destination in this registry is pinned ``False`` any more.  14 and 17
+    were the last two and PANYA-DECISION 20260908_1218 lifted both, because a
+    scene whose position is never written back is a scene the owner's
+    "log in where you logged out" rule cannot hold for.  (That rule needs a
+    THIRD gate this function knows nothing about: writing the row and
+    admitting it at login still landed the character on the pinned spawn
+    until ``world_scene_entry._ground_refutes_stored_row``, LANE-A round
+    ``ioz8fd``.  A reader who quotes this paragraph as proof of the whole
+    rule is quoting a third of it.)  This function is
+    therefore, today, a fence with nothing behind it - which is the intended
+    state, not a sign it should be deleted: it is the check a future
+    destination pinned ``False`` would fail, and the RULE that keeps the set
+    empty is pinned as a test rather than as a list in code
+    (``tests/test_world_scene_registry_login_door.py``: every pinned
+    destination that has a spawn must answer True here and be admissible at
+    login).  A list in this file would have to be edited by hand every time
+    the registry grows; a walk of the registry cannot fall out of date.
 
     Still validates ``n_id`` itself (type and the wire field's 1..0xFFFF
     range) rather than fail-opening on a garbage argument - a caller that

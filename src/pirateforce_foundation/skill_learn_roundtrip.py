@@ -85,11 +85,25 @@ RECORD_MEMBERS_ARE_THIS_PROJECTS_DESIGN = (
     "record_u32_0=skill_id, record_u16_4=0, record_u32_8=points_remaining"
 )
 
-#: Outcomes.  Exactly three, and the third one exists because the window
-#: between the spend and the grant is real.
+#: Outcomes.  Four named here, plus `OUTCOME_SPENT_ON_NOTHING` below (kept
+#: apart because it is discovered after the grant call returns, not while
+#: unwinding one that raised) -- five in total.  pf-adversary round
+#: `mfgv4m`, D7: this comment used to say "exactly three" while a fourth
+#: constant sat twelve lines below it; a fifth is added the same round this
+#: sentence is corrected, so the count is written as a fact to keep current
+#: rather than a number to trust.
 OUTCOME_LEARNED = "learned"
 OUTCOME_REFUSED = "refused"
 OUTCOME_SPENT_BUT_NOT_GRANTED = "spent_but_not_granted"
+#: pf-adversary round `mfgv4m`, D4 -- the exception branch used to fold this
+#: into `OUTCOME_REFUSED` whenever the balance could not be RE-READ after a
+#: raise (`points_after is None`), regardless of `points_before`.  A
+#: refusal says nothing was spent; here nobody can say that, because the
+#: one measurement that would say so is the measurement that just failed.
+#: Reporting it as `refused` told a maintainer the point was safe when the
+#: honest answer is "unknown" -- this outcome exists so "unknown" is a
+#: word the caller can see instead of a guess baked into `spent`.
+OUTCOME_SPEND_STATUS_UNKNOWN = "spend_status_unknown"
 
 #: Refusal reasons.  Every one names the row or the rule, never the caller.
 REFUSE_CHARACTER_ID_NOT_AN_INT = "character_id_is_not_an_int"
@@ -232,16 +246,26 @@ def learn_skill_round_trip(
         # one it was is decided by RE-READING the balance, never by reading
         # the exception's type.
         points_after = _balance_or_none(store, character_id)
-        spent = (
-            points_before is not None
-            and points_after is not None
-            and points_after < points_before
-        )
+        # pf-adversary round `mfgv4m`, D4: `points_after is None` (the
+        # re-read itself failed, e.g. "database is locked") used to fall
+        # through to the `else` below and be reported as `refused` with
+        # `points_before` -- a point may well be gone and this outcome said
+        # nothing was ever spent.  That comparison needs BOTH reads to mean
+        # anything, so the case where either is missing is its own named
+        # outcome instead of a silent guess.
+        if points_before is None or points_after is None:
+            outcome = OUTCOME_SPEND_STATUS_UNKNOWN
+            reported_points = points_after if points_after is not None else points_before
+        elif points_after < points_before:
+            outcome = OUTCOME_SPENT_BUT_NOT_GRANTED
+            reported_points = points_after
+        else:
+            outcome = OUTCOME_REFUSED
+            reported_points = points_before
         return LearnSkillRoundTrip(
-            OUTCOME_SPENT_BUT_NOT_GRANTED if spent else OUTCOME_REFUSED,
+            outcome,
             getattr(error, "reason", None) or type(error).__name__,
-            character_id, skill_id, points_before,
-            points_after if spent else points_before,
+            character_id, skill_id, points_before, reported_points,
             None, None, None,
         )
 
@@ -278,13 +302,27 @@ def learn_skill_round_trip(
 def headless_token(result: LearnSkillRoundTrip) -> str:
     """The one ASCII line an attended boot prints for `GT-321`.
 
-    EVERY NUMBER COMES OFF THE ARTIFACT, not off the arguments that were
-    handed in -- the rule pf-adversary's D3 established one module to the
-    left this same day.  `frame_bytes` is the length of the composed frame;
-    `records` is decoded back out of the composed pc rather than counted in
-    the list that was encoded; `RESULT` is derived from the outcome, never
-    typed into the format string.  A mutant that stops composing cannot
+    EVERY NUMBER THIS VITAL'S OWN BYTES CARRY comes off the decoded
+    artifact, not off the arguments that were handed in -- the rule
+    pf-adversary's D3 established one module to the left this same day.
+    `skill=` and `points=` are read back out of the decoded record
+    (`record_u32_0`/`record_u32_8`) when a record decoded, exactly the
+    fields `RECORD_MEMBERS_ARE_THIS_PROJECTS_DESIGN` names for them --
+    pf-adversary round `mfgv4m`, D6 found both still typed straight from
+    `result.skill_id`/`result.points_remaining`, so a composer that
+    silently swapped or dropped a field would still print a token that
+    read TOLD with the caller's own numbers.  `frame_bytes` is the length
+    of the composed frame; `records` is decoded back out of the composed
+    pc rather than counted in the list that was encoded; `RESULT` is
+    derived from the outcome, never typed into the format string.  A
+    mutant that stops composing, or composes the wrong record, cannot
     print a healthy line here.
+
+    `cid=` is the one field this vital's bytes never carry at all (see the
+    module NONCLAIMS and `learn_skill_result_frame`'s: no character id is
+    part of this record), so it is unavoidably `result.character_id` --
+    echoed from the call, not read off any artifact, and named as such
+    here rather than folded into the sentence above.
     """
     from .learn_skill_result_frame import (
         LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE,
@@ -294,6 +332,7 @@ def headless_token(result: LearnSkillRoundTrip) -> str:
     )
 
     records_on_wire, trailing_on_wire, frame_bytes = 0, -1, 0
+    skill_on_wire, points_on_wire = result.skill_id, result.points_remaining
     if result.pc is not None and result.frame is not None:
         start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
         # The count field is read off the wire and then handed straight back
@@ -318,16 +357,24 @@ def headless_token(result: LearnSkillRoundTrip) -> str:
             decoded, trailing_on_wire = (), -1
         records_on_wire = len(decoded)
         frame_bytes = len(result.frame)
+        if decoded:
+            # pf-adversary round `mfgv4m`, D6: read the fields this vital's
+            # own design (`RECORD_MEMBERS_ARE_THIS_PROJECTS_DESIGN`) names
+            # for them off the decoded record, not off the arguments this
+            # function was handed -- a token that merely echoed its inputs
+            # could not tell a correctly composed frame from one that put
+            # the wrong skill id or the wrong balance on the wire.
+            skill_on_wire = decoded[0].record_u32_0
+            points_on_wire = decoded[0].record_u32_8
     return (
         "LEARN_SKILL_ROUND_TRIP cid=%d skill=%d outcome=%s reason=%s "
         "points=%s records=%d trailing_u8=%d frame_bytes=%d RESULT=%s"
         % (
             result.character_id,
-            result.skill_id,
+            skill_on_wire,
             result.outcome,
             result.reason if result.reason is not None else "-",
-            result.points_remaining if result.points_remaining is not None
-            else "-",
+            points_on_wire if points_on_wire is not None else "-",
             records_on_wire,
             trailing_on_wire,
             frame_bytes,
@@ -407,6 +454,19 @@ def main(argv: "list[str] | None" = None) -> int:
     if database is None:
         database = Path(root) / DEFAULT_DB_RELATIVE_PATH
     store = SQLiteStore(database, Path(root) / "migrations")
+    # pf-adversary round `mfgv4m`, D1: without this call, a `--db` path that
+    # does not exist yet is silently handed to sqlite3 (which creates an
+    # empty FILE, no tables) and every read below then raises, is swallowed
+    # by `_balance_or_none`/`_skills_or_none`, and comes out the far end as
+    # the named refusal `REFUSE_BALANCE_UNMEASURED` -- a real, specific-
+    # sounding reason for what is actually "this database was never
+    # migrated".  `migrate()` is the same call the test fixture in `tests/
+    # test_skill_learn_roundtrip.py` makes before touching a store, and it
+    # is a no-op against an already-migrated database (nothing left to
+    # apply), so this does not change behaviour against the live server's
+    # own database (`app.py` migrates it at boot) -- it only stops this
+    # entry point from lying about a database nobody has migrated yet.
+    store.migrate()
     legacy = load_legacy(Path(root) / "current" / "pf_login_game_server_v141.py")
     result = learn_skill_round_trip(legacy, store, args.character, args.skill)
     _print_console_line(headless_token(result))

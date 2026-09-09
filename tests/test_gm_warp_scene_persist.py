@@ -258,9 +258,13 @@ class RealDatabaseTests(unittest.TestCase):
         this round the row was untouched and the character survived; taking
         that away is what CHARTER-02 rule 2 forbids.
         """
+        _install_shut_scene()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
         self.assertFalse(
-            world_scene_travel.destination(126).login_entry_allowed,
-            "this test's premise: scene 126 is pinned login_entry_allowed=False",
+            _registry_with_shut_scene()[SHUT_SCENE].login_entry_allowed,
+            "this test's premise: the registry answering here pins the scene "
+            "login_entry_allowed=False",
         )
         session = self._session("persist08")
         outcome = warp_scene_persist.persist_warp_scene(session, _target(126, x=3050.0))
@@ -268,6 +272,9 @@ class RealDatabaseTests(unittest.TestCase):
         self.assertEqual(self._row(session).scene_id, 1)
 
     def test_the_refused_destination_prints_no_token(self):
+        _install_shut_scene()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
         session = self._session("persist09")
         stream = io.StringIO()
         with redirect_stderr(stream):
@@ -323,6 +330,9 @@ class RealDatabaseTests(unittest.TestCase):
         "wrote-failed-silently" apart -- `GT-172` F-3 cannot be closed off a
         trail entry nobody watching the screen ever sees.
         """
+        _install_shut_scene()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
         session = self._session("persist16")
         stream = io.StringIO()
         with redirect_stderr(stream):
@@ -378,6 +388,9 @@ class RealDatabaseTests(unittest.TestCase):
             def flush(self):
                 raise ValueError("I/O operation on closed file")
 
+        _install_shut_scene()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
         session = self._session("persist19")
         with redirect_stderr(_Closed()):
             outcome = warp_scene_persist.persist_warp_scene(
@@ -582,7 +595,17 @@ class LoginWouldAcceptTests(unittest.TestCase):
         self.assertTrue(warp_scene_persist.login_would_accept(DESTINATION_SCENE))
 
     def test_a_scene_pinned_not_allowed_at_login_is_refused(self):
-        self.assertFalse(warp_scene_persist.login_would_accept(126))
+        # SUBJECT MOVED to a bent registry, LANE-A round 9lv3fa: the shipped
+        # file pins nobody shut since PANYA-DECISION 20260908_1218, and this
+        # case grades the REFUSAL, which must outlive the last scene that
+        # earned it.  The scene that used to sit here, 126, is admitted now -
+        # asserted below so this pair cannot both be quietly satisfied by a
+        # login_would_accept that answers False for everything.
+        _install_shut_scene()
+        self.assertFalse(warp_scene_persist.login_would_accept(SHUT_SCENE))
+
+    def test_the_same_scene_is_accepted_by_the_registry_that_ships(self):
+        self.assertTrue(warp_scene_persist.login_would_accept(SHUT_SCENE))
 
     def test_a_scene_the_registry_does_not_pin_is_refused(self):
         self.assertFalse(warp_scene_persist.login_would_accept(64000))
@@ -921,6 +944,33 @@ def _install_quietly(registry):
     """
     with redirect_stderr(io.StringIO()):
         return warp_scene_persist.use_boot_scene_registry(registry)
+
+
+# LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218 opened every
+# door in the shipped registry, so scene 126 - which every case below used as
+# "the scene the next login would refuse" - is admitted now.  The refusal
+# these cases grade is NOT gone and must stay under test for the day a scene
+# is pinned shut again, so the subject moved from the shipped file to a bent
+# copy of it: the same real row, with the same real spawn, carrying the flag
+# the shipped file no longer carries anywhere.
+#
+# Installed INSIDE each case rather than in a setUp because four subclasses
+# install registries of their own in theirs; a later install wins, and a case
+# that grades the refusal has to be sure which registry answered it.
+SHUT_SCENE = 126
+
+
+def _registry_with_shut_scene(shut_scene_id=SHUT_SCENE):
+    real = world_scene_travel.load_scene_registry()
+    return world_scene_travel.SceneRegistry(destinations=tuple(
+        replace(row, login_entry_allowed=False)
+        if row.n_id == shut_scene_id else row
+        for row in real.destinations))
+
+
+def _install_shut_scene():
+    warp_scene_persist.reset_login_registry_snapshot_for_tests()
+    return _install_quietly(_registry_with_shut_scene())
 
 
 class TheBootRegistryDoorTests(unittest.TestCase):
@@ -1385,7 +1435,17 @@ class TheBarredLoginSceneListTests(unittest.TestCase):
             )
         )
         self.assertEqual(expected, warp_scene_persist.barred_login_scene_ids())
-        self.assertTrue(expected, "a registry with nothing barred proves nothing")
+        # ~~self.assertTrue(expected, "a registry with nothing barred proves
+        # nothing")~~ -- STRUCK, LANE-A round 9lv3fa: PANYA-DECISION
+        # 20260908_1218 emptied the barred set on purpose, and an assertion
+        # that the shipped registry must always bar SOMETHING is exactly the
+        # pin the owner removed.  What kept this case honest was never that
+        # line - it was the walk above, comparing the lister against
+        # `login_would_accept` over every pinned row - and
+        # `test_the_set_moves_when_the_registry_moves` below still proves the
+        # lister is derived rather than hardcoded, by shutting a scene in a
+        # bent registry and requiring the answer to grow by exactly it.
+        self.assertEqual((), expected, "1218: no scene ships barred")
 
     def test_the_set_moves_when_the_registry_moves(self):
         """The whole point of `R399`: it must not be able to go stale.
@@ -1484,6 +1544,9 @@ class TheRefusalLineNamesTheBarredSetTests(RealDatabaseTests):
     """
 
     def test_the_line_names_the_barred_scenes_and_says_the_scene_is_pinned(self):
+        _install_shut_scene()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests)
         session = self._session("barred01")
         stream = io.StringIO()
         with redirect_stderr(stream):

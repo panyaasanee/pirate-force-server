@@ -21,6 +21,7 @@ can be booted at all, and whether the boot it gets can be graded:
 """
 
 import ast
+import dataclasses
 import json
 from pathlib import Path
 import sys
@@ -145,17 +146,37 @@ class ConsoleTests(unittest.TestCase):
         resolve_entry(ATTENDED_HOME_ROW, emit=sink)
         self.assertEqual(len(sink.lines), 1)
 
-    def test_a_character_already_standing_on_a_pinned_spawn_prints_one_line(self):
-        # The rule takes the pinned-spawn branch here, and nothing moves.  A
-        # second line would cry wolf on every login forever, and the ticket's
-        # stop rule is a person believing that line.
+    def test_a_character_already_standing_on_a_pinned_spawn_says_which_rule(self):
+        """~~...prints_one_line~~ -- RENAMED AND INVERTED round 1v5i3h.
+
+        The old comment ("the rule takes the pinned-spawn branch here, and
+        nothing moves; a second line would cry wolf on every login forever")
+        described the tree before PANYA-DECISION 20260908_1218.  Since 1218
+        this arrival takes the KEPT-ROW branch: the character's own row is
+        used, and it merely coincides with the pin.  The two branches produce
+        the same coordinate and, until this round, the same single console
+        line -- which is pf-adversary D8 of round ioz8fd from one side and D1
+        from the other, because the row that most often coincides with a pin
+        is a zero row, and a zero row is what an uninitialised character
+        looks like.
+
+        THE COST, STATED: one extra line on a login where a character stands
+        bit-exactly on a non-home scene's pinned spawn.  The cry-wolf worry
+        the old comment raised was about HOME, where GT-078's graded boot is
+        still exactly one line (``test_a_normal_home_boot_prints_exactly_one_
+        line`` above, unchanged) because home never reaches this branch.
+        """
         scene2 = world_scene_travel.destination(2)
         sink = Sink()
         entry = resolve_entry(
             Position(2, 0, *scene2.spawn, 0.0), emit=sink)
         self.assertFalse(entry.relocated)
         self.assertIsNone(entry.relocation_reason)
-        self.assertEqual(len(sink.lines), 1)
+        self.assertEqual(len(sink.lines), 2, sink.lines)
+        self.assertIn("WORLD_SCENE_KEPT_ROW", sink.lines[1])
+        self.assertIn(
+            "basis=%s" % world_scene_entry.KEPT_ROW_NO_MEASUREMENT,
+            sink.lines[1])
 
     def test_a_non_callable_sink_is_refused(self):
         with self.assertRaises(ValueError):
@@ -264,34 +285,71 @@ class LoginEntryRestrictionTests(unittest.TestCase):
     the refusal survives now that scene 17 has one, WITHOUT going through
     ``columbus_quest_dispatch``'s own synthetic call - the exact gap the
     adversary pass found no test covering.
+
+    THE SUBJECT MOVED, THE REGRESSION DID NOT (LANE-A round ``9lv3fa``,
+    2026-09-08).  PANYA-DECISION 20260908_1218 opened scene 17 at login along
+    with 126, 304 and 305, so scene 17 can no longer play the shut scene in
+    these tests.  Rather than delete the regression with the pin - which would
+    leave ``via_login`` untested for as long as the registry has nobody to
+    refuse - the shut scene is now SYNTHETIC: a real pinned destination with a
+    real spawn, copied with ``login_entry_allowed=False``.  That is strictly
+    stronger than what this class did before, because it no longer depends on
+    any particular scene staying shut in the shipped registry, and it is what
+    keeps the mechanism alive for a destination added later without a spawn.
+    Which scenes are open TODAY is a different question, walked over the whole
+    registry in tests/test_world_scene_registry_login_door.py.
     """
 
+    @staticmethod
+    def _shut_registry():
+        """A one-row registry whose only destination is pinned shut.
+
+        Built from a REAL row (scene 17, spawn and all) so the refusal under
+        test is the only thing that can refuse it - a synthetic row with no
+        spawn would be refused by REFUSED_NO_PINNED_SPAWN and prove nothing.
+        """
+        real = world_scene_travel.load_scene_registry()[17]
+        return world_scene_travel.SceneRegistry(
+            destinations=(dataclasses.replace(
+                real, login_entry_allowed=False),))
+
     # A row shaped exactly like what a character's stored position would be
-    # if it somehow ever named scene 17 - NOT the synthetic zero-XYZ Position
+    # if it named the shut scene - NOT the synthetic zero-XYZ Position
     # columbus_quest_dispatch.resolve_columbus_arrival builds fresh every
     # call, so a fix that only special-cased that literal object would not
     # pass this.
     PERSISTED_SCENE_17_ROW = Position(17, 0, 1.0, 2.0, 3.0, 0.5)
 
-    def test_a_stored_scene_17_row_is_refused_at_the_login_call_shape(self):
+    def test_a_stored_shut_scene_row_is_refused_at_the_login_call_shape(self):
         # resolve_entry(row, registry=..., emit=...) - no via_login keyword -
         # is exactly the call runtime.py's login path makes.  This is the
-        # regression pin: it must still refuse scene 17 today, exactly as it
-        # did before scene 17 had a pinned spawn at all.
+        # regression pin: a row naming a scene pinned shut is refused on that
+        # call shape, whichever scene the registry pins shut.
         with self.assertRaises(SceneEntryRefused) as caught:
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink(),
+                          registry=self._shut_registry())
         self.assertEqual(caught.exception.reason, REFUSED_NOT_ALLOWED_AT_LOGIN)
         self.assertIn("17", str(caught.exception))
+
+    def test_the_same_row_is_admitted_by_the_registry_that_ships(self):
+        """The other half of 1218, on the same row and the same call shape.
+
+        Without this, replacing the registry with a shut one in every test
+        above would hide a regression that shut the real door again.
+        """
+        entry = resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+        self.assertEqual(entry.destination.n_id, 17)
 
     def test_the_refusal_reason_is_named_in_the_public_set(self):
         self.assertIn(REFUSED_NOT_ALLOWED_AT_LOGIN, REFUSAL_REASONS)
 
-    def test_a_refused_scene_17_login_emits_nothing(self):
+    def test_a_refused_login_emits_nothing(self):
         # Same contract as every other refusal: no WORLD_SCENE line for a
         # destination that was never actually granted.
         sink = Sink()
         with self.assertRaises(SceneEntryRefused):
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=sink)
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=sink,
+                          registry=self._shut_registry())
         self.assertEqual(sink.lines, [])
 
     def test_via_login_defaults_true_with_no_keyword_passed(self):
@@ -300,7 +358,8 @@ class LoginEntryRestrictionTests(unittest.TestCase):
         # would still pass (they pass no keyword either) - this one exists so
         # a reader can see the default is asserted, not merely relied upon.
         with self.assertRaises(SceneEntryRefused):
-            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink())
+            resolve_entry(self.PERSISTED_SCENE_17_ROW, emit=Sink(),
+                          registry=self._shut_registry())
 
     def test_via_login_false_is_the_columbus_dispatch_escape_hatch(self):
         # The other half of the same mechanism: an explicit non-login caller
@@ -474,7 +533,15 @@ class StageRowCoherenceTests(unittest.TestCase):
         # A silent heading reset is invisible at heading 0, which is what every
         # Port Royal row carries, so it is measured on the one row here that
         # does not.
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        #
+        # LANE-A round ioz8fd: driven with via_login=False, because a LOGIN
+        # no longer relocates this row at all - PANYA-DECISION 20260908_1218
+        # keeps a stored row that nothing measured refutes.  The relocation
+        # branch is still reached by every non-login caller (Columbus'
+        # synthetic arrival is the live one), and the heading question is
+        # about that branch, so this drives it where it still exists rather
+        # than asserting a relocation the owner's rule has withdrawn.
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         self.assertTrue(entry.relocated)
         self.assertEqual(entry.position.heading, PRISON_ISLAND_ROW.heading)
 
@@ -494,7 +561,8 @@ class StageRowCoherenceTests(unittest.TestCase):
             "WORLD_SCENE_KEPT_ROW scene_id=278 "
             "used=(-13000.000,22500.000,-2492.000) "
             "pinned_spawn=(-13270.058,22794.273,-2492.769) "
-            "stored_seq=0 used_seq=0"
+            "stored_seq=0 used_seq=0 "
+            "basis=stored_xy_inside_pinned_ground_extent"
         ))
 
     def test_a_rewritten_sequence_is_reported_rather_than_silent(self):
@@ -620,10 +688,18 @@ class SceneWithNoPinnedGroundTests(unittest.TestCase):
     """Scene 2 - n_SAVE = 1, n_MARKER = 2, no pinned ground, and the only
     non-home scene this client has ever rendered.  The branch that handles it
     is a different branch with a different reported reason, so it is tested as
-    one."""
+    one.
+
+    SINCE LANE-A ROUND ioz8fd these cases pass ``via_login=False``.  The
+    branch is unchanged and still live - every non-login caller takes it -
+    but a LOGIN no longer reaches it for a scene with no ground block:
+    PANYA-DECISION 20260908_1218 keeps the character's own stored row unless
+    something MEASURED refutes it, and a missing ground block measures
+    nothing.  See ``world_scene_entry._ground_refutes_stored_row``."""
 
     def test_a_scene_with_no_pinned_ground_uses_its_pinned_spawn(self):
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        # via_login=False since round ioz8fd - see the class docstring.
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         scene2 = world_scene_travel.destination(2)
         self.assertIsNone(scene2.ground_extent)
         self.assertTrue(entry.relocated)
@@ -635,23 +711,40 @@ class SceneWithNoPinnedGroundTests(unittest.TestCase):
     def test_the_reason_names_the_missing_ground_not_the_extent(self):
         # Two branches, two reasons.  A module that reported one reason for
         # both would be indistinguishable from one that never took this branch.
-        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink(), via_login=False)
         self.assertEqual(
             entry.relocation_reason, RELOCATED_NO_GROUND_EVIDENCE)
         self.assertNotEqual(
             entry.relocation_reason,
-            resolve_entry(PORT_ROYAL_XYZ_IN_THE_STAGE,
-                          emit=Sink()).relocation_reason,
+            resolve_entry(PORT_ROYAL_XYZ_IN_THE_STAGE, emit=Sink(),
+                          via_login=False).relocation_reason,
         )
 
-    def test_this_scene_persists_characters_and_is_relocated_anyway(self):
-        # The honest statement of rule 2's limit, kept as a test: n_SAVE says
-        # this scene saves characters, and the rule overrides its row anyway,
-        # because no path in this tree has written one yet.  The day that stops
-        # being true, this test is the one that has to be argued with.
+    def test_this_scene_persists_characters_and_its_login_row_is_now_kept(self):
+        """~~test_this_scene_persists_characters_and_is_relocated_anyway~~
+        -- INVERTED, LANE-A round ioz8fd, 2026-09-08.
+
+        The struck case ended with "The day that stops being true, this test
+        is the one that has to be argued with."  This is that argument.
+        n_SAVE said this scene saves characters and the rule overrode its
+        row anyway, on the stated grounds that no path in this tree had
+        written one yet; PANYA-DECISION 20260908_1218 says the row wins, and
+        since round 3a11a0 there IS a path that writes one.  So the same
+        fact - n_SAVE = 1 - is asserted against the opposite outcome, on the
+        same row, rather than deleted.
+        """
         scene2 = world_scene_travel.destination(2)
         self.assertTrue(scene2.persists_characters)
-        self.assertTrue(resolve_entry(PRISON_ISLAND_ROW, emit=Sink()).relocated)
+        entry = resolve_entry(PRISON_ISLAND_ROW, emit=Sink())
+        self.assertFalse(entry.relocated)
+        self.assertEqual(
+            (entry.position.x, entry.position.y, entry.position.z),
+            (PRISON_ISLAND_ROW.x, PRISON_ISLAND_ROW.y, PRISON_ISLAND_ROW.z))
+        # ...and the withdrawn behaviour is still exactly one keyword away,
+        # so this case also pins that the change is about WHO is asking.
+        self.assertTrue(
+            resolve_entry(PRISON_ISLAND_ROW, emit=Sink(),
+                          via_login=False).relocated)
 
 
 class ProvisionalDecreeTests(unittest.TestCase):
@@ -710,7 +803,20 @@ class ProvisionalDecreeTests(unittest.TestCase):
             (entry.position.x, entry.position.y, entry.position.z),
             self.DECREE_XYZ,
         )
-        self.assertIn(self.DECREE_TOKEN, sink.lines)
+        # ~~assertIn(self.DECREE_TOKEN, sink.lines)~~ - the token grew a
+        # ``from=`` field round 1v5i3h (pf-adversary D1 of round ioz8fd:
+        # a kept zero row and a real decreed arrival printed the same
+        # bytes).  Matched as a PREFIX so this case keeps testing what it
+        # is named for - that the token fires at all on this path - and
+        # ``test_the_decree_token_says_whether_the_row_or_the_pin_put_it_
+        # there`` in tests/test_world_scene_registry_login_door.py is what
+        # pins the new field's two values.
+        matching = [
+            line for line in sink.lines
+            if line.startswith(self.DECREE_TOKEN)
+        ]
+        self.assertEqual(len(matching), 1, sink.lines)
+        self.assertIn("from=pinned_spawn", matching[0])
 
     def test_the_token_never_fires_for_an_unrelated_destination(self):
         # Sanity check on the token's own gate: a destination with real
@@ -843,7 +949,12 @@ class ReportingTests(unittest.TestCase):
     def test_every_reported_reason_is_one_of_the_named_ones(self):
         for row in (PORT_ROYAL_XYZ_IN_THE_STAGE, PRISON_ISLAND_ROW):
             with self.subTest(scene=row.scene_id):
-                entry = resolve_entry(row, emit=Sink())
+                # via_login=False: the prison-island row is KEPT at login
+                # since round ioz8fd, and a kept row reports no reason at
+                # all.  The question here is whether the relocation branch
+                # names its reason from the pinned tuple, so it is asked
+                # where relocation still happens.
+                entry = resolve_entry(row, emit=Sink(), via_login=False)
                 self.assertIn(entry.relocation_reason, RELOCATION_REASONS)
 
     def test_the_report_carries_both_positions_and_the_travel_columns(self):

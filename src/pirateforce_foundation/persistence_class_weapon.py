@@ -306,3 +306,94 @@ def newly_created_character_merge_warning() -> str | None:
                 "the commit; a character born in this class reaches that "
                 "(CORE-REQUEST 20260908_0206)")
     return None
+
+
+def mint_class_weapon(
+    store, sid: str, character_id: int, class_id: int,
+) -> BackpackState:
+    """Give a character her OWN class's weapon as a new backpack row -- no
+    ground drop, no migration, no retargeting of a row already in the bag.
+
+    WHOSE ORDER THIS IS.  ``pf_bridge/NOW.md`` LANE-DB queue item 3 (`1455`,
+    the GM-only weapon test range: ``/job <1|2|4|16|32>`` puts a GM account
+    in any of the five classes to test its skills, and a class with an empty
+    bag -- every class, since ``PANYA 2150`` -- has nothing to swing).  This
+    is the door ``store.mint_backpack_item``'s own nonclaim names and defers
+    to: "a caller minting a class weapon is a different door with a
+    different catalog; see ``pf_bridge/NOW.md``'s LANE-DB queue item 3."
+    That catalog is :data:`CLASS_ID_TO_WEAPON_TEMPLATE` above, not
+    ``gm.item_catalog`` -- a weapon template id such as ``2200002`` is not a
+    row in any of that module's three tables, so ``mint_backpack_item``
+    could never have minted one even if a caller passed a made-up category.
+
+    NOT A NEW WRITE PATH.  Same shape as ``mint_backpack_item``: this
+    composes an :class:`ItemAttrState` (next free identity, first free slot,
+    the class's own template, quantity 1) and lands it through
+    ``store.commit_acquired_backpack_item`` -- the one door this
+    repository's own backpack-row-insert allowlist pin (the admission
+    expiry test file, half one) recognises as a pickup write -- rather than
+    a raw ``INSERT``.  Nothing in this function's own body executes SQL, so
+    it cannot become a fourth inserter that pin would catch; every refusal
+    ``commit_acquired_backpack_item`` already enforces (session ownership,
+    gate-2 shape, atomicity with the identity counter) applies here for
+    free.
+
+    THREE NAMED REFUSALS.
+      * ``class_id`` has no row in :data:`CLASS_ID_TO_WEAPON_TEMPLATE` (not
+        one of the five playable classes, or the wrong type) ->
+        :class:`ClassWeaponError`, raised by :func:`class_weapon_template_id`
+        itself -- the same door :func:`carry_old_weapon_forward` already
+        trusts for this check, not a second copy of it.
+      * No free slot below the shape gate's own ceiling -> raise naming the
+        bag full, read BEFORE anything is composed so a full bag never
+        reaches a half-built row.  The ceiling is asked of
+        :func:`_slot_ceiling`, the same derived bound
+        :func:`carry_old_weapon_forward` uses, not the literal ``40`` this
+        module's own docstring explains why it refuses to hand-type.
+      * Session/character ownership, gate-2 shape, and the identity race ->
+        whatever ``store.commit_acquired_backpack_item`` itself raises;
+        this function does not catch or soften any of them.
+
+    NONCLAIMS.
+      * Does not check whether the bag already holds a weapon -- this
+        class's own, a different class's, or a ground-picked-up one.  A GM
+        testing a class repeatedly is expected to call this repeatedly; a
+        duplicate-guard would make the second call silently do nothing
+        instead of minting the row the caller asked for, which is the
+        opposite of what a test range is for.  ``mint_backpack_item`` makes
+        the identical choice for the identical reason.
+      * Does not equip the row or touch ``AvatarAttr`` -- this is the BAG,
+        the same scope LANE-CS's own birth-bag composer draws around
+        itself.
+      * Has no caller in ``runtime.py`` or ``gm/`` as of this round -- that
+        wiring is chief's/GM lane's zone (``AGENTS.md``: ``runtime.py``
+        ``app.py`` ``gm/`` = chief/other lanes, a CORE-REQUEST per seam),
+        proposed by letter alongside this function rather than reached into.
+      * ``class_id`` type coercion is exactly as permissive as the rest of
+        this module (``class_weapon_template_id`` does ``int(class_id)``,
+        so ``True``/``"2"``/``2.0`` silently resolve to a real class rather
+        than refusing) -- pf-adversary (round ``xpcq8r``) measured this and
+        it is pre-existing behaviour shared by every caller of that
+        function, not a new departure here.  Whoever wires the GM command
+        that calls this is the one who must pass an already-validated
+        class id, not a wire-parsed raw value.
+    """
+    template = class_weapon_template_id(class_id)
+    bag = store.get_backpack(sid, character_id)
+    used = {item.slot for item in bag.items}
+    ceiling = _slot_ceiling()
+    slot = next(
+        (candidate for candidate in range(0, ceiling + 1)
+         if candidate not in used),
+        None,
+    )
+    if slot is None:
+        raise ClassWeaponError(
+            "backpack is full (%d/%d slots); no class weapon was minted"
+            % (len(bag.items), ceiling + 1)
+        )
+    identity = store.backpack_issued_through(sid, character_id) + 1
+    item = ItemAttrState(
+        identity=identity, template_id=template, quantity=1, slot=slot,
+    )
+    return store.commit_acquired_backpack_item(sid, character_id, item)

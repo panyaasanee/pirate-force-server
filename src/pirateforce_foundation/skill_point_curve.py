@@ -294,6 +294,11 @@ BIRTH_SKILL_POINTS = 0
 #: all four ``CHARCREATE`` tables dumped column by column -- see the module
 #: header).  The value is the owner's order, ``PANYA-DECISION 20260908_1218``
 #: point 3, the same order ``migrations/017`` carries as ``DEFAULT 0``.
+#: RE-316: the client's own CharCreate request carries no ``ActorAttr`` at
+#: all, so whatever the original server gave a character at birth is not
+#: measurable from this client -- closed as a bounded negative
+#: (``COO-DECISION 20260908_2141``, "re316-is-a-bounded-negative-the-
+#: number-stays-yours"), not evidence that zero is the measured answer.
 BIRTH_SKILL_POINTS_PROVENANCE = PROVENANCE_ASSUMPTION
 
 #: The shipped table a ``MEASURED`` number was read off.  Empty exactly while
