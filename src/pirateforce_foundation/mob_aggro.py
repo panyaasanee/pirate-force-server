@@ -211,7 +211,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
+
+from . import mob_identity_sign
 
 
 # PROMOTED 2026-08-26 by COO-DECISION 2026-08-26T04:02+07:00, section 1.3 and
@@ -454,6 +456,70 @@ class MobAiContractError(ValueError):
         self.detail = detail
 
 
+def _require_player_identity(value: Any, what: str,
+                             reason: str = REFUSE_IDENTITY_NOT_POSITIVE) -> int:
+    """One rule, one place, for every PLAYER identity this module admits.
+
+    PANYA-ORDER ``20260908_1545`` item 2.2 ("no positive-only rule may be
+    left spelled out anywhere") and COO-DECISION ``20260909_1312`` item 1.
+    This module used to write ``identity <= 0`` in four places.  That spelling
+    was not wrong -- every identity that reaches these four doors is a
+    PLAYER's, and rule 1 of :mod:`mob_identity_sign` says a player identity is
+    positive -- but it was wrong to keep saying it here, because the day the
+    monster band goes negative a reader has to decide, door by door, whether
+    each ``<= 0`` meant "player only" or "not a real actor".  Those two
+    sentences have the same spelling today and opposite meanings tomorrow.
+
+    So the fence is now the shared predicate, and it says which side it is
+    on: THE PLAYER SIDE.  A negative value arriving at one of these doors
+    after the flip is not a monster that grew a new right; it is a monster
+    identity sitting in a seat the aggro tables reserve for players
+    (``PlayerObservation`` is a player, the threat table is keyed by the
+    players who hit the mob, and a mob's target is a player), and it is still
+    refused -- by the same named reason as before, so every caller and test
+    that reads ``reason`` keeps reading the same string.
+
+    NOT the band predicate the ledger and the loot floor keep.  Those doors
+    take an identity from either side and ask only "will the client draw
+    it?"; these take one side only.  Two questions, two predicates, and the
+    difference is now written where the fence is instead of inferred from
+    an operator.
+
+    THE ACCEPT SET DID CHANGE, AND SAYING SO IS THE POINT (pf-adversary,
+    round ``9xv7rc``, D7).  The four sites this replaces spelled
+    ``isinstance(x, int) and not isinstance(x, bool)``; the shared
+    predicate spells ``type(x) is not int``.  So an ``int`` SUBCLASS and an
+    ``enum.IntEnum`` member used to be accepted here and are now refused.
+    That is the stricter of the two spellings this repository has argued
+    both ways -- ``mob_loot`` line ~5801 keeps ``isinstance`` because a
+    responder counting with an ``IntEnum`` got its loot CLEARED, while
+    ``world_m2_trigger_vital_response`` line ~1189 keeps ``type is int``
+    because the values are hostile wire input.  These doors take values off
+    the wire path, so the strict spelling is the right one here; shipping
+    it inside a change described as behaviour-preserving would not have
+    been.  Reachability today is low: the one production feed
+    (``runtime.selected_actor_identity`` -> ``mob_combat.HitOutcome``
+    -> ``mob_ai_control.damage_step`` -> :func:`apply_damage_threat`)
+    carries plain ints, and :func:`test_a_monster_band_identity_is_refused_
+    at_all_four_player_doors` drives the case the flip needs.
+
+    ``.reason`` is byte-identical at all four doors.  ``.detail`` is NOT:
+    it now carries the predicate's own message in parentheses on the
+    non-integer path.  Nothing in ``src/`` or ``tests/`` reads ``.detail``
+    (it is only assigned, in :class:`MobAiContractError`), so this breaks
+    no caller -- but "the same string" was true of ``reason`` alone and the
+    first draft of this docstring said it of both.
+    """
+    try:
+        on_the_player_side = mob_identity_sign.is_player_identity(value)
+    except mob_identity_sign.MobIdentitySignError as exc:
+        raise MobAiContractError(
+            reason, "%s=%r (%s)" % (what, value, exc)) from exc
+    if not on_the_player_side:
+        raise MobAiContractError(reason, "%s=%r" % (what, value))
+    return value
+
+
 def _require_number(value, what: str) -> float:
     """int or float only -- a string or a bool is refused BY NAME, never coerced."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -578,11 +644,7 @@ class PlayerObservation:
     alive: bool
 
     def __post_init__(self) -> None:
-        if not isinstance(self.identity, int) or isinstance(self.identity, bool) \
-                or self.identity <= 0:
-            raise MobAiContractError(
-                REFUSE_IDENTITY_NOT_POSITIVE,
-                "player identity=%r" % (self.identity,))
+        _require_player_identity(self.identity, "player identity")
         object.__setattr__(
             self, "position",
             _require_finite_triple(self.position, "player position",
@@ -648,8 +710,9 @@ class MobAiState:
                 raise MobAiContractError(
                     REFUSE_STATE_MALFORMED, "threat row %r" % (row,))
             identity, value = row
-            if isinstance(identity, bool) or not isinstance(identity, int) \
-                    or identity <= previous_identity:
+            _require_player_identity(identity, "threat identity",
+                                     REFUSE_STATE_MALFORMED)
+            if identity <= previous_identity:
                 raise MobAiContractError(
                     REFUSE_STATE_MALFORMED,
                     "threat identities must be positive ints, strictly "
@@ -662,13 +725,9 @@ class MobAiState:
                     % (row,))
             previous_identity = identity
         object.__setattr__(self, "threat", rows)
-        if self.target_identity is not None and (
-                isinstance(self.target_identity, bool)
-                or not isinstance(self.target_identity, int)
-                or self.target_identity <= 0):
-            raise MobAiContractError(
-                REFUSE_STATE_MALFORMED,
-                "target_identity=%r" % (self.target_identity,))
+        if self.target_identity is not None:
+            _require_player_identity(self.target_identity, "target_identity",
+                                     REFUSE_STATE_MALFORMED)
         if isinstance(self.ticks_since_attack, bool) \
                 or not isinstance(self.ticks_since_attack, int) \
                 or self.ticks_since_attack < 0:
@@ -717,11 +776,7 @@ def apply_damage_threat(state: MobAiState, attacker_identity: int,
     only by the next proximity acquisition -- so this function keeps the
     invariant that RETURN and DEAD states always carry an empty table.
     """
-    if not isinstance(attacker_identity, int) or isinstance(
-            attacker_identity, bool) or attacker_identity <= 0:
-        raise MobAiContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE,
-            "attacker identity=%r" % (attacker_identity,))
+    _require_player_identity(attacker_identity, "attacker identity")
     if not isinstance(damage, int) or isinstance(damage, bool) \
             or damage < DAMAGE_I32_MIN or damage > DAMAGE_I32_MAX:
         raise MobAiContractError(

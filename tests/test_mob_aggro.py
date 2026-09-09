@@ -29,7 +29,13 @@ What this file proves, and where the proof stops:
   * DEATH is absorbing and clears the table; damage folded into a dead mob's
     state is a no-op;
   * PURITY: frozen inputs are never mutated;
-  * CONTAINMENT: the module imports only stdlib, has no import-time side
+  * CONTAINMENT: ~~the module imports only stdlib~~ the module imports
+    stdlib plus ONE sibling, ``mob_identity_sign``, which the containment
+    class proves is itself stdlib-only (round ``9xv7rc``: PANYA-ORDER
+    20260908_1545 item 2.2 required this module to stop spelling its own
+    positive-only identity rule; pf-adversary of that round, D6, caught
+    this line and the one in the round-``1tz15e`` paragraph below still
+    saying "stdlib-only" after the body had stopped), has no import-time side
     effects, ~~is imported by no other module in ``src/``~~, is pure ASCII and
     cp874-safe, and declares ~~production_allowed False~~,
     ~~dispatch-reachable False~~ and attack-intent deliverable False.
@@ -49,9 +55,10 @@ What this file proves, and where the proof stops:
     observability".  The lesson is the round's own subject turned on itself -
     striking two stale claims out of a paragraph is not the same as walking
     the paragraph, and the walk stopped one clause short.
-    What is still true and still proved: stdlib-only imports, no import-time
-    side effects, ASCII/cp874, and attack intent NOT deliverable - nothing
-    this lane decides reaches a client.
+    What is still true and still proved: ~~stdlib-only imports~~ stdlib plus
+    the one sibling named in the CONTAINMENT bullet above (round `9xv7rc`),
+    no import-time side effects, ASCII/cp874, and attack intent NOT
+    deliverable - nothing this lane decides reaches a client.
     ROUND `a7k5gy` (2026-09-03): the struck ``dispatch-reachable`` clause was
     ONE WORD FOR TWO FACTS, and COO-DECISION 2026-09-03T16:47+07:00 item 1
     split it.  ``MOB_AGGRO_DAMAGE_FOLD_REACHABLE`` (True) is the fold reached
@@ -76,6 +83,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import mob_aggro as ma  # noqa: E402
+from pirateforce_foundation import mob_identity_sign  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_b_mob_ai_tick)
 
@@ -170,6 +178,44 @@ def module_imports_mob_aggro(source: str) -> bool:
         if any(_is_this_lane(name) for name in names):
             return True
     return False
+
+
+def _every_module_name_imported_by(source: str) -> set:
+    """Every module name ``source`` imports, by any form this file can see.
+
+    ROUND ``9xv7rc``, paying pf-adversary D5.  Same node types and the same
+    ``__import__``/``import_module`` handling as
+    :func:`module_imports_mob_aggro` -- deliberately, so that widening one
+    scan widens both.  A scan of two node types would have missed
+    ``__import__("pirateforce_foundation.runtime", fromlist=["x"])``, which
+    is the shape this file already recorded as measured in round ``1tz15e``
+    and then reintroduced in a new case one round later.
+
+    Carries the SAME stated blind spots as its twin: a computed module
+    name, a ``sys.modules`` lookup, and an edge through a third module.
+    """
+    tree = ast.parse(source)
+    importer_names = _names_bound_to_an_importer(tree)
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+        elif isinstance(node, ast.Call):
+            callee = node.func
+            called = ""
+            if isinstance(callee, ast.Name):
+                called = callee.id
+            elif isinstance(callee, ast.Attribute):
+                called = callee.attr
+            if called not in importer_names:
+                continue
+            imported.update(
+                argument.value for argument in node.args
+                if isinstance(argument, ast.Constant)
+                and isinstance(argument.value, str))
+    return imported
 
 
 def functions_that_touch_this_lane(source: str) -> set:
@@ -484,6 +530,46 @@ class ObservationContractTests(unittest.TestCase):
                     player(bad, (1.0, 0.0, 0.0))
                 self.assertEqual(caught.exception.reason,
                                  ma.REFUSE_IDENTITY_NOT_POSITIVE)
+
+    def test_a_monster_band_identity_is_refused_at_all_four_player_doors(self):
+        """pf-adversary D4, round 9xv7rc: the negative case was pinned at ONE.
+
+        The reviewer swapped ``is_player_identity`` for ``identity_is_drawn``
+        inside ``_require_player_identity`` -- i.e. kept the type check and
+        dropped "positive", which is exactly the semantic the flip leans on
+        -- and the whole suite stayed green except ONE subtest, at
+        ``PlayerObservation``.  The other three doors were only ever driven
+        with ``0``, which ``identity_is_drawn`` and the threat loop's
+        ``previous_identity = 0`` seed both catch on their own.
+
+        So after the flip, three of the four doors would have accepted a
+        MONSTER identity into a table this module keys by PLAYER, and
+        nothing would have said so.  A real band value is driven at each of
+        the four here, taken from the allocator rather than typed.
+        """
+        band = mob_identity_sign.mob_wire_identity(1, 0)
+        self.assertLess(band, 0)
+
+        with self.assertRaises(ma.MobAiContractError) as caught:
+            player(band, (1.0, 0.0, 0.0))
+        self.assertEqual(caught.exception.reason,
+                         ma.REFUSE_IDENTITY_NOT_POSITIVE)
+
+        with self.assertRaises(ma.MobAiContractError) as caught:
+            ma.MobAiState(ma.PHASE_IDLE, (0.0, 0.0, 0.0), ((band, 5),),
+                          None, 0)
+        self.assertEqual(caught.exception.reason, ma.REFUSE_STATE_MALFORMED)
+
+        with self.assertRaises(ma.MobAiContractError) as caught:
+            ma.MobAiState(ma.PHASE_IDLE, (0.0, 0.0, 0.0), (), band, 0)
+        self.assertEqual(caught.exception.reason, ma.REFUSE_STATE_MALFORMED)
+
+        with self.assertRaises(ma.MobAiContractError) as caught:
+            ma.apply_damage_threat(
+                ma.MobAiState(ma.PHASE_IDLE, (0.0, 0.0, 0.0), (), None, 0),
+                band, -5)
+        self.assertEqual(caught.exception.reason,
+                         ma.REFUSE_IDENTITY_NOT_POSITIVE)
 
     def test_positions_must_be_finite_triples(self):
         with self.assertRaises(ma.MobAiContractError) as caught:
@@ -1069,8 +1155,61 @@ class ContainmentTests(unittest.TestCase):
                 imported.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 imported.add(node.module or "")
+        # The empty string is ``from . import mob_identity_sign`` -- a
+        # relative import has no module name.  PANYA-ORDER 20260908_1545
+        # item 2.2 required this module to stop spelling its own
+        # positive-only identity rule, and the shared predicate is the one
+        # thing it may reach for.  The containment this class defends is
+        # "no wire, no database, no dispatch, no scenario", NOT "no
+        # siblings", and the next test enforces that the one sibling
+        # admitted here is itself contained -- so the rule got narrower to
+        # let this through, not looser.
         self.assertEqual(imported, {"__future__", "dataclasses", "math",
-                                    "typing"})
+                                    "typing", ""})
+        names = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom) and node.module is None:
+                names.update(alias.name for alias in node.names)
+        self.assertEqual(names, {"mob_identity_sign"})
+
+    def test_the_one_sibling_it_imports_is_itself_free_of_the_layers(self):
+        """A pure module may import a pure module, and only a pure one.
+
+        Written as a check rather than as trust in a name: the moment
+        ``mob_identity_sign`` grows an import of the wire, the database, a
+        dispatcher or a scenario, this module stops being pure through it
+        and this case says so here, where the containment rule lives.
+
+        THE FIRST DRAFT WALKED ``ast.Import``/``ast.ImportFrom`` ONLY
+        (pf-adversary, round ``9xv7rc``, D5) -- the exact hole
+        :func:`module_imports_mob_aggro` forty lines up records as measured
+        and paid for in round ``1tz15e``.  The reviewer put
+        ``__import__("pirateforce_foundation.runtime", fromlist=["x"])``
+        into the sibling and this class stayed green, so the containment
+        the diff leaned on did not hold against the one form this file had
+        already bought once.  It now runs the SAME scanner, which is the
+        only way the two claims stay in step when either is widened.
+        """
+        sibling = MODULE_SOURCE_PATH.parent / "mob_identity_sign.py"
+        source = sibling.read_text(encoding="utf-8")
+        self.assertEqual(_every_module_name_imported_by(source),
+                         {"__future__", "typing"})
+
+    def test_the_sibling_scan_sees_a_dynamic_import_not_just_a_plain_one(self):
+        """The guard on the guard above -- D5's own mutant, kept.
+
+        Without this, the scan could quietly go back to reading two node
+        types and nothing in the repository would notice.
+        """
+        plain = "from __future__ import annotations\nfrom typing import Any\n"
+        self.assertEqual(_every_module_name_imported_by(plain),
+                         {"__future__", "typing"})
+        sneaky = plain + (
+            'def _leak():\n'
+            '    return __import__("pirateforce_foundation.runtime",'
+            ' fromlist=["x"])\n')
+        self.assertIn("pirateforce_foundation.runtime",
+                      _every_module_name_imported_by(sneaky))
 
     def test_the_module_has_no_import_time_side_effects(self):
         allowed = (
