@@ -468,9 +468,17 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # 130 joined it this round (yfbqmg), TENTH AND LAST door, same
         # shape, NOT elevated-risk.  Scene 17, the id this test actually
         # drives, is still barred and still refused either way.
+        # ~~`... 11, 14, 126, 130, 278, 997)`~~ -- 126 was in this way-out
+        # list only because a chief letter SANCTIONED it, and that row was
+        # retired in LANE-GM round `xbfcsi` (`COO-DECISION 20260908_2141`).
+        # The list is derived from the module rather than retyped, so the
+        # next arrival or retirement moves it here without an edit, and the
+        # assertion still fails if the console stops printing the way out.
+        from pirateforce_foundation.gm import login_scene_admission
+
         self.assertIn(
-            "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, "
-            "278, 997)",
+            "stageable="
+            + str(login_scene_admission.single_use_stageable_scene_ids()),
             console)
 
         # And the operator's file is untouched: refusing to ACT on an entry
