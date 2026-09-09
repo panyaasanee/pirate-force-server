@@ -213,6 +213,8 @@ from dataclasses import dataclass
 import math
 from typing import Optional, Tuple
 
+from . import mob_identity_sign
+
 
 # PROMOTED 2026-08-26 by COO-DECISION 2026-08-26T04:02+07:00, section 1.3 and
 # the section-3 row "sai B: M4 second half + raise mob_aggro to production in
@@ -578,11 +580,16 @@ class PlayerObservation:
     alive: bool
 
     def __post_init__(self) -> None:
-        if not isinstance(self.identity, int) or isinstance(self.identity, bool) \
-                or self.identity <= 0:
+        # One rule, one place (COO-DECISION 20260909_1312 beat 1): a PLAYER
+        # is the positive half of the shared band, because that is the half
+        # the client draws with the player colour formula.
+        try:
+            mob_identity_sign.require_player_identity(
+                self.identity, "player identity")
+        except mob_identity_sign.MobIdentitySignError as exc:
             raise MobAiContractError(
                 REFUSE_IDENTITY_NOT_POSITIVE,
-                "player identity=%r" % (self.identity,))
+                "player identity=%r" % (self.identity,)) from exc
         object.__setattr__(
             self, "position",
             _require_finite_triple(self.position, "player position",
@@ -648,8 +655,18 @@ class MobAiState:
                 raise MobAiContractError(
                     REFUSE_STATE_MALFORMED, "threat row %r" % (row,))
             identity, value = row
-            if isinstance(identity, bool) or not isinstance(identity, int) \
-                    or identity <= previous_identity:
+            # Two separate things, kept separate on purpose: the shared rule
+            # says WHICH numbers are a player (COO-DECISION 20260909_1312
+            # beat 1), and the ascending test is this table's own ordering
+            # invariant.  Together they refuse exactly what the old
+            # "<= previous_identity" over a zero seed refused.
+            try:
+                mob_identity_sign.require_player_identity(
+                    identity, "threat identity")
+                ascending = identity > previous_identity
+            except mob_identity_sign.MobIdentitySignError:
+                ascending = False
+            if not ascending:
                 raise MobAiContractError(
                     REFUSE_STATE_MALFORMED,
                     "threat identities must be positive ints, strictly "
@@ -662,13 +679,17 @@ class MobAiState:
                     % (row,))
             previous_identity = identity
         object.__setattr__(self, "threat", rows)
-        if self.target_identity is not None and (
-                isinstance(self.target_identity, bool)
-                or not isinstance(self.target_identity, int)
-                or self.target_identity <= 0):
-            raise MobAiContractError(
-                REFUSE_STATE_MALFORMED,
-                "target_identity=%r" % (self.target_identity,))
+        if self.target_identity is not None:
+            # A mob's target is a player, so it is the player half of the
+            # shared rule -- not a local "<= 0" that would also throw away
+            # every real monster once this lane flips the allocator.
+            try:
+                mob_identity_sign.require_player_identity(
+                    self.target_identity, "target_identity")
+            except mob_identity_sign.MobIdentitySignError as exc:
+                raise MobAiContractError(
+                    REFUSE_STATE_MALFORMED,
+                    "target_identity=%r" % (self.target_identity,)) from exc
         if isinstance(self.ticks_since_attack, bool) \
                 or not isinstance(self.ticks_since_attack, int) \
                 or self.ticks_since_attack < 0:
@@ -717,11 +738,13 @@ def apply_damage_threat(state: MobAiState, attacker_identity: int,
     only by the next proximity acquisition -- so this function keeps the
     invariant that RETURN and DEAD states always carry an empty table.
     """
-    if not isinstance(attacker_identity, int) or isinstance(
-            attacker_identity, bool) or attacker_identity <= 0:
+    try:
+        mob_identity_sign.require_player_identity(
+            attacker_identity, "attacker identity")
+    except mob_identity_sign.MobIdentitySignError as exc:
         raise MobAiContractError(
             REFUSE_IDENTITY_NOT_POSITIVE,
-            "attacker identity=%r" % (attacker_identity,))
+            "attacker identity=%r" % (attacker_identity,)) from exc
     if not isinstance(damage, int) or isinstance(damage, bool) \
             or damage < DAMAGE_I32_MIN or damage > DAMAGE_I32_MAX:
         raise MobAiContractError(

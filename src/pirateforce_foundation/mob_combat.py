@@ -735,12 +735,16 @@ def _require_identity(value: Any, label: str) -> int:
     ``mob_identity_sign.decode_wire_identity`` on an inbound value is
     refused HERE, loudly, instead of quietly missing.
     """
-    identity = _require_int(value, label, -(2 ** 63), 2 ** 63 - 1)
-    if not mob_identity_sign.is_targetable_identity(identity):
+    identity = _require_int(
+        value, label, mob_identity_sign.MIN_SIGNED_IDENTITY,
+        mob_identity_sign.MAX_SIGNED_IDENTITY)
+    try:
+        return mob_identity_sign.require_targetable_identity(identity, label)
+    except mob_identity_sign.MobIdentitySignError as exc:
+        # The JUDGEMENT is the shared one (COO-DECISION 20260909_1312 beat 1);
+        # only the name of the complaint is this module's.
         raise MobCombatContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE,
-            "%s must be a drawable identity in the signed wire band" % label)
-    return identity
+            REFUSE_IDENTITY_NOT_POSITIVE, str(exc)) from exc
 
 
 def _require_position(value: Any) -> tuple[float, float, float]:

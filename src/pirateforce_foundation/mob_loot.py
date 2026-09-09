@@ -1387,8 +1387,10 @@ MAX_IDENTITY_MAGNITUDE = MAX_IDENTITY
 #: WIRE width (what the eight bytes can hold); these two are the MEANINGS
 #: those bytes can carry.  Anything above ``MAX_SIGNED_IDENTITY`` reaching a
 #: guard is an undecoded wire value, not a big actor.
-MIN_SIGNED_IDENTITY = -(2 ** 63)
-MAX_SIGNED_IDENTITY = 2 ** 63 - 1
+#: Aliases, not a second copy: the band itself is declared once, in
+#: ``mob_identity_sign`` (COO-DECISION ``20260909_1312`` beat 1).
+MIN_SIGNED_IDENTITY = mob_identity_sign.MIN_SIGNED_IDENTITY
+MAX_SIGNED_IDENTITY = mob_identity_sign.MAX_SIGNED_IDENTITY
 
 
 def _require_identity(value: Any, label: str) -> int:
@@ -1409,11 +1411,13 @@ def _require_identity(value: Any, label: str) -> int:
     """
     identity = _require_int(value, label, MIN_SIGNED_IDENTITY,
                             MAX_SIGNED_IDENTITY)
-    if not mob_identity_sign.is_targetable_identity(identity):
+    try:
+        return mob_identity_sign.require_targetable_identity(identity, label)
+    except mob_identity_sign.MobIdentitySignError as exc:
+        # The JUDGEMENT is the shared one (COO-DECISION 20260909_1312 beat 1);
+        # only the name of the complaint is this module's.
         raise MobLootContractError(
-            REFUSE_IDENTITY_NOT_POSITIVE,
-            "%s must be a drawable identity in the signed wire band" % label)
-    return identity
+            REFUSE_IDENTITY_NOT_POSITIVE, str(exc)) from exc
 
 
 def _require_lifetime(value: Any) -> float:

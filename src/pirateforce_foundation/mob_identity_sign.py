@@ -104,6 +104,10 @@ __all__ = [
     "encode_wire_identity",
     "decode_wire_identity",
     "is_targetable_identity",
+    "require_targetable_identity",
+    "require_player_identity",
+    "MIN_SIGNED_IDENTITY",
+    "MAX_SIGNED_IDENTITY",
     "WIRE_IDENTITY_MASK",
 ]
 
@@ -118,6 +122,15 @@ WIRE_IDENTITY_MASK = 0xFFFFFFFFFFFFFFFF
 
 #: The one value the client refuses to draw (R324A row 8, ``N-ID0``).
 IDENTITY_NOT_DRAWN = 0
+
+#: The MEANINGS the eight bytes can carry, as opposed to
+#: :data:`WIRE_IDENTITY_MASK` which is what they can HOLD.  Every module that
+#: judges an identity reads these two names rather than spelling ``2 ** 63``
+#: again: four modules carried their own copy of this pair on the morning of
+#: COO-DECISION ``20260909_1312``, which is exactly the shape that decision
+#: exists to end.
+MIN_SIGNED_IDENTITY = -(2 ** 63)
+MAX_SIGNED_IDENTITY = 2 ** 63 - 1
 
 NAME_COLOUR_GREEN = "green"
 NAME_COLOUR_PINK = "pink"
@@ -510,9 +523,77 @@ def is_targetable_identity(identity: int) -> bool:
     _refuse_non_integer(identity)
     if identity == IDENTITY_NOT_DRAWN:
         return False
-    if identity >= 2**63 or identity < -(2**63):
+    if identity < MIN_SIGNED_IDENTITY or identity > MAX_SIGNED_IDENTITY:
         return False
     return True
+
+
+def require_targetable_identity(value: Any, label: str = "identity") -> int:
+    """THE identity-range rule: one function, one rule, one place.
+
+    COO-DECISION ``20260909_1312`` beat 1, carrying PANYA ``20260908_1545``:
+    before this lane moves ``field_mobs.actor_identity`` off
+    ``0x2000 + placement_index + 1``, every module that judges an identity
+    has to be judging it with the SAME rule, in ONE place.  On the morning
+    that decision was written, ``main`` carried FOUR rules that disagreed:
+
+      * ``world_scene_registry._require_identity`` (lane A) refuses < 1
+      * ``mob_loot``/``mob_combat``/``mob_death``/``mob_ai_control`` each
+        carried their own byte-identical copy of the signed-band predicate
+      * ``mob_aggro`` and ``mob_combat_bg0015_gates`` still read ``<= 0``
+        straight over an actor identity
+      * ``gm/teleport_wire`` and ``name_color_gate`` accept 0 and the full
+        64-bit width
+
+    A monster whose identity is negative would therefore have been drawn in
+    the right colour and been unable to register, to be hit, or to drop --
+    each module refusing it for its own reason, none of them the client's.
+
+    THE RULE, and the only one this tree may write down:
+      * ``0`` is refused ALWAYS.  The owner counted 23 of 24 boards on the
+        R324A screen and named the missing one; the client does not draw an
+        actor at identity 0, so no server path may open one.
+      * anything outside the signed 64-bit field the wire carries is
+        refused -- an inbound value above :data:`MAX_SIGNED_IDENTITY` is an
+        UNDECODED wire value (``struct.unpack('<Q', ...)``), not a big
+        actor, and the caller owes it a :func:`decode_wire_identity` first.
+      * every other value, negative included, is a real actor.
+
+    Returns the identity so a call site can read
+    ``identity = require_targetable_identity(value, "target identity")``.
+    Callers that owe their own named refusal (``mob_loot`` and friends each
+    carry a refusal vocabulary of their own) catch
+    :class:`MobIdentitySignError` and re-raise in their own words -- the
+    JUDGEMENT stays here, only the name of the complaint is local.
+    """
+    _refuse_non_integer(value, label)
+    if not is_targetable_identity(value):
+        raise MobIdentitySignError(
+            "%s must be a drawable identity in the signed wire band" % label)
+    return value
+
+
+def require_player_identity(value: Any, label: str = "player identity") -> int:
+    """The same rule, narrowed to the half the PLAYER formula owns.
+
+    Rule 1 of this module's header, measured on the R324A screen: an actor
+    drawn by the player formula is one whose identity is > 0.  A player's
+    identity is therefore positive not because "identities are positive"
+    (they are not any more) but because the client picks the player colour
+    formula BY that sign -- so a threat table keyed by attacker, a viewer
+    link, or a mob's chosen target all want this narrower gate, and want it
+    written HERE rather than as another local ``<= 0``.
+
+    The distinction is the whole point of beat 1: after the allocator flips,
+    ``<= 0`` at a call site is ambiguous between "this must be a player" and
+    "this cannot be a real actor", and only the first one stays true.
+    """
+    identity = require_targetable_identity(value, label)
+    if identity < 0:
+        raise MobIdentitySignError(
+            "%s must be positive: the client draws a negative identity with "
+            "the NPC/monster formula, not the player one" % label)
+    return identity
 
 
 def _refuse_scene_id(scene_id: Any) -> None:
