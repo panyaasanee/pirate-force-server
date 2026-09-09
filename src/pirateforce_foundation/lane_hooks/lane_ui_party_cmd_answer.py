@@ -245,6 +245,46 @@ def answer_party_cmd(session=None, vital_id=0, payload=b"", **_ignored):
         )
     ]
 
+# THE ARMING SAMPLE, DECLARED BY THE LANE THAT OWNS THE CLASS
+# (round ly40b5).  ``ui_party_invite_answer_headless.py`` is the runner
+# that produces the ``HEADLESS_PROOF:`` token every attended ticket on
+# this seam needs (``NOW.md``, PANYA ``0159``).  It used to hard-code one
+# class, so two answered buttons had no token and no ticket; making it
+# name all three would have put this family's vocabulary into a
+# top-level Foundation module, which ``tests/test_npc_interaction_wire``
+# guards against by design -- and taking the exemption that guard offers
+# would have been buying a green with an allowlist entry, which
+# ``NOW.md`` ``2050`` forbids outright.
+#
+# So the runner asks instead of naming: the lane that owns a class is the
+# only place that already legitimately spells it, and it is also the only
+# place that knows what a well-formed frame of that class looks like.
+# A new answerer becomes measurable by declaring these two names, and
+# ``tests/test_ui_dispatch.py`` makes an answerer that declares neither a
+# red test rather than a button that quietly cannot be proven.
+ARMING_TOKEN = "UI_PARTY_CMD_ANSWER_ARMED"
+
+
+def arming_sample():
+    """``(vital_id, version, payload)`` for a well-formed frame of this class.
+
+    Called only by the arming runner.  It is a FUNCTION, not a module
+    constant, so no boot pays for building a sample frame it will never
+    send.
+    """
+    return (
+        wire.PARTY_CMD_VITAL_ID,
+        wire.PARTY_CMD_VITAL_VERSION,
+        wire.encode_party_cmd_payload(
+            wire.PartyCmdFields(
+                field1_u8=1,
+                field2_u64=0x1122334455667788,
+            )
+        ),
+    )
+
+
+
 
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS --
 # the same shape, and the same note, as the two answerers beside it.  A

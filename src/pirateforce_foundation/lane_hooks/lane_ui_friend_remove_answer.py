@@ -245,6 +245,41 @@ def answer_remove_friend(session=None, vital_id=0, payload=b"", **_ignored):
     ]
 
 
+# THE TWO NAMES THE ARMING RUNNER ASKS FOR (recovered from PR #1167,
+# `claude/festive-shannon-ly40b5`, round `ly40b5`: `EveryAnswered
+# ButtonHasARunnerTests` in `tests/test_ui_dispatch.py` refuses to boot
+# any process where a reviewed-owner id's lane is imported but does not
+# declare both names -- this module shipped one round BEFORE that guard
+# landed on this branch, and was the one gap the guard's own commit
+# message describes finding).  Same shape and same reason as the three
+# sibling answerers: the runner reads the reviewed owner table, imports
+# the lane that owns the id, and asks the lane for its own token and
+# sample frame -- no edit to the runner, no spelling of this class's name
+# outside this file.
+ARMING_TOKEN = "UI_FRIEND_REMOVE_ANSWER_ARMED"
+
+
+def arming_sample():
+    """``(vital_id, version, payload)`` for a well-formed frame of this class.
+
+    Called only by the arming runner.  It is a FUNCTION, not a module
+    constant, so no boot pays for building a sample frame it will never
+    send.  The name is ASCII on purpose: the bridge console is cp874 and
+    the runner prints what it measured.
+    """
+    return (
+        wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID,
+        wire.COMMUNITY_REMOVE_FRIEND_VITAL_VERSION,
+        wire.encode_remove_friend_payload(
+            wire.RemoveFriendFields(
+                field1_u64=0x1122334455667788,
+                field2_u64=0x99AABBCCDDEEFF00,
+                field3_u8=1,
+            )
+        ),
+    )
+
+
 # REGISTERED AT IMPORT, WHICH IS WHEN ``lane_hooks._discover()`` RUNS --
 # the same shape as the three answerers beside it.  A refused
 # registration is not an exception: the seam returns False and names the
