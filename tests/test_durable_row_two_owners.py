@@ -66,7 +66,9 @@ from pirateforce_foundation.world_scene_travel import (  # noqa: E402
 
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
-WITHHELD_TOKEN = "DURABLE_ROW_WITHHELD_UNCONFIRMED_SCENE"
+WITHHELD_TOKEN = "DURABLE_ROW_WITHHELD"
+REFUSED = "login_refuses_this_scene"
+UNREADABLE = "login_fence_unreadable"
 # The scene LANE-A's letter names: no ``ground`` block, so nothing downstream
 # can refute a row that points at it, and the registry lets it persist.
 UNREFUTABLE_SCENE_ID = 305
@@ -256,10 +258,10 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
         self.assertEqual(self._stored(state), before)
         self.assertEqual(
             self._withheld_lines(err),
-            ["%s %d" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID)],
+            ["%s %d reason=%s" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID, REFUSED)],
         )
         self.assertIn(
-            "durable_row_withheld_unconfirmed_scene_%d" % UNREFUTABLE_SCENE_ID,
+            "durable_row_withheld_%s_scene_%d" % (REFUSED, UNREFUTABLE_SCENE_ID),
             state.events,
         )
 
@@ -306,14 +308,22 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
 
         self.assertEqual(seen, [(UNREFUTABLE_SCENE_ID, False)])
 
-    def test_a_confirmed_warp_writes_again_on_the_next_step(self):
-        """The cost, pinned so it cannot quietly grow.
+    def test_a_confirmed_warp_to_a_refused_scene_writes_no_brick(self):
+        """pf-adversary D1, pinned in the direction the first draft got wrong.
 
-        A warp the client DOES follow clears the guess on the frame that
-        confirms it, and that frame runs the gate BEFORE the clear.  So the
-        confirming step withholds and the NEXT one writes: one step, not one
-        session.  A change that made this two steps -- or never -- would take
-        the player's position away from them, and this test is what notices.
+        THE TEST THIS REPLACES ASSERTED THE DEFECT.  What stood here asserted
+        that the step AFTER a confirmed warp stores ``(305, coordinates)``,
+        and called it "the cost, one step not one session".  It is not a
+        cost, it is the brick this gate exists to prevent, arriving one frame
+        late: the confirming frame clears ``scene_label_is_server_guess``, and
+        a fence built on that flag stops fencing the moment the client agrees
+        with us about where it is.  Login refuses 305, so the row that used to
+        be stored here is a character that cannot be played.
+
+        The client below lands EXACTLY on the warp target, so the confirm path
+        runs in full and the flag really is cleared -- this is not a test that
+        the confirmation failed.  A regression that puts the flag back in
+        charge of the fence turns this red on the second report.
         """
         state = self._login_and_start("dr_two_owners05")
         x, y, z = self._memory(state)
@@ -328,15 +338,215 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
 
         second = (target_point[0] + 5.0, target_point[1], z)
         err = self._report(state, *second)
+        self.assertEqual(self._stored(state), before)
+        # The line was already said on the confirming frame, so this one is
+        # silent -- see the latch test below; what is pinned HERE is the row.
+        self.assertEqual(self._withheld_lines(err), [])
+
+        # And it does not come back two frames later either.
+        third = (second[0] + 5.0, second[1], z)
+        self._report(state, *third)
+        self.assertEqual(self._stored(state), before)
+
+    def test_the_withheld_line_is_said_once_per_scene_not_once_per_frame(self):
+        """pf-adversary D-D, measured: the console and `events` were unbounded.
+
+        A walking player sends TargetPos continuously, so a token printed on
+        every withheld frame buries the one an attended round is reading for,
+        and an event appended on every withheld frame grows `state.events`
+        for the life of the connection.  `_m2_note_arrival_if_confirmed`, a
+        few hundred lines up in the same file, already refuses exactly this
+        for exactly these reasons.  Until this round the guess flag bounded
+        the spam by accident -- it cleared, and the branch stopped being
+        taken; arming the fence per scene removed that bound, so the latch
+        has to be explicit and pinned.
+        """
+        state = self._login_and_start("dr_two_owners16")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, UNREFUTABLE_SCENE_ID)
+
+        lines = []
+        for step in range(1, 6):
+            lines.extend(self._withheld_lines(
+                self._report(state, x + 3.0 * step, y + 3.0 * step, z)
+            ))
+
+        self.assertEqual(
+            lines,
+            ["%s %d reason=%s"
+             % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID, REFUSED)],
+            "five withheld frames, one line",
+        )
+        self.assertEqual(
+            [e for e in state.events if e.startswith("durable_row_withheld")],
+            ["durable_row_withheld_%s_scene_%d"
+             % (REFUSED, UNREFUTABLE_SCENE_ID)],
+            "five withheld frames, one event",
+        )
+
+    def test_a_second_reason_for_the_same_scene_is_still_said_once(self):
+        """Why the latch is keyed on (scene, reason) and not on scene alone.
+
+        A session that has already refused a scene on POLICY and then loses
+        the registry entirely has learned a second fact, and it is the one a
+        tester most needs: the fence is broken, not merely closed.  A latch
+        keyed on the scene would swallow it and the console would go on
+        saying "login refuses this scene" about a fence that can no longer
+        answer anything.  Still exactly once per fact, so D-D holds.
+        """
+        state = self._login_and_start("dr_two_owners17")
+        x, y, z = self._memory(state)
+        self._arm_a_cross_scene_warp(state, UNREFUTABLE_SCENE_ID)
+
+        lines = self._withheld_lines(self._report(state, x + 3.0, y + 3.0, z))
+
+        def _unreadable(_scene_id):
+            raise RuntimeError("registry unavailable")
+
+        with mock.patch.object(
+            warp_scene_persist, "login_would_accept", _unreadable,
+        ):
+            for step in (2, 3):
+                lines.extend(self._withheld_lines(
+                    self._report(state, x + 3.0 * step, y + 3.0 * step, z)
+                ))
+
+        self.assertEqual(lines, [
+            "%s %d reason=%s" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID, REFUSED),
+            "%s %d reason=%s"
+            % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID, UNREADABLE),
+        ])
+
+    def test_a_confirmed_warp_to_an_accepted_scene_does_write(self):
+        """The other side of D1: the fence must not swallow the good row.
+
+        278 is a scene login DOES take back, so a character a GM warped there
+        whose client followed keeps its position across a relog -- that row is
+        truthful and playable.  Without this test the D1 fix has a degenerate
+        form that passes everything else in this file: withhold after any
+        warp, forever.
+        """
+        state = self._login_and_start("dr_two_owners11")
+        x, y, z = self._memory(state)
+        target_point = (x + 1.0, y + 1.0, z)
+        self._arm_a_cross_scene_warp(state, LOGIN_ACCEPTED_SCENE_ID)
+
+        self._report(state, *target_point)
+        self.assertFalse(getattr(state, "scene_label_is_server_guess", False))
+
+        second = (target_point[0] + 5.0, target_point[1], z)
+        err = self._report(state, *second)
         self.assertEqual(self._withheld_lines(err), [])
         self.assertEqual(
             self._stored(state),
             (
-                UNREFUTABLE_SCENE_ID,
+                LOGIN_ACCEPTED_SCENE_ID,
                 self._f32(second[0]), self._f32(second[1]),
                 self._f32(second[2]),
             ),
         )
+
+    # ----- pf-adversary D2: the token describes the write, or is silent ----
+
+    def test_the_token_does_not_print_over_a_row_that_was_not_written(self):
+        """``GM_WARP_POSITION_CONFIRMED`` means a durable write survived.
+
+        Its gate used to be ``is_position_persist_allowed``, which is True for
+        305 while ``login_would_accept`` -- the predicate the writer asks --
+        is False.  The two disagree by construction on exactly the scenes the
+        fence aims at, so the token printed over a row that was never written,
+        on the console an attended tester reads.
+        """
+        registry = load_scene_registry()
+        # The disagreement that makes this reachable, asserted not assumed.
+        self.assertTrue(
+            is_position_persist_allowed(UNREFUTABLE_SCENE_ID, registry)
+        )
+        self.assertFalse(login_would_accept(UNREFUTABLE_SCENE_ID))
+
+        state = self._login_and_start("dr_two_owners12")
+        x, y, z = self._memory(state)
+        target_point = (x + 1.0, y + 1.0, z)
+        self._arm_a_cross_scene_warp(state, UNREFUTABLE_SCENE_ID)
+        before = self._stored(state)
+
+        err = self._report(state, *target_point)
+
+        self.assertNotIn("GM_WARP_POSITION_CONFIRMED", err)
+        self.assertNotIn("gm_warp_position_confirmed", state.events)
+        self.assertEqual(self._stored(state), before)
+
+    def test_the_token_still_prints_when_the_row_did_survive(self):
+        """The false-negative half of D2: the fix must not mute a true token.
+
+        Same confirming frame, on a scene login accepts and the registry lets
+        persist -- the case CORE-REQUEST-GM-030 wrote the token for.
+        """
+        state = self._login_and_start("dr_two_owners13")
+        x, y, z = self._memory(state)
+        target_point = (x + 1.0, y + 1.0, z)
+        self._arm_a_cross_scene_warp(state, LOGIN_ACCEPTED_SCENE_ID)
+
+        err = self._report(state, *target_point)
+
+        self.assertIn("GM_WARP_POSITION_CONFIRMED", err)
+        self.assertIn("gm_warp_position_confirmed", state.events)
+        self.assertEqual(self._stored(state)[0], LOGIN_ACCEPTED_SCENE_ID)
+
+    # ----- why the fence is armed per scene, not asked on every frame ------
+
+    def test_an_ordinary_walk_is_never_asked_about_the_login_fence(self):
+        """``login_would_accept`` fails CLOSED; an ordinary walk must not ask.
+
+        ``is_position_persist_allowed`` fails OPEN for a scene nobody pinned,
+        on purpose -- "an ordinary walk in a scene nobody pinned must still
+        save".  A fence that asked the closed-failing predicate on every
+        durable write would stop position saving for players who never
+        warped, everywhere the registry is thin.  Measured by call count, not
+        by reading the source line.
+        """
+        state = self._login_and_start("dr_two_owners14")
+        x, y, z = self._memory(state)
+
+        calls = []
+        real = warp_scene_persist.login_would_accept
+
+        def _counting(scene_id):
+            calls.append(scene_id)
+            return real(scene_id)
+
+        with mock.patch.object(
+            warp_scene_persist, "login_would_accept", _counting,
+        ):
+            err = self._report(state, x + 7.0, y - 7.0, z)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(self._withheld_lines(err), [])
+        self.assertEqual(self._stored(state)[0], 1)
+
+    def test_a_label_that_is_not_a_scene_never_enters_the_latch(self):
+        """The shape guard on the latch, and why it is not decoration.
+
+        Python makes ``True == 1``, so a bool that reached the set would make
+        ``candidate.scene_id == 1`` -- Port Royal, where every character
+        starts -- test as "a scene the server sent this session to" and put
+        the whole starting town behind a fence built for warp destinations.
+        The two production call sites pass registry-derived ints today; this
+        pins the guard rather than the call sites, because the guard is what
+        survives the next caller.
+        """
+        state = self._login_and_start("dr_two_owners15")
+        x, y, z = self._memory(state)
+        for not_a_scene in (True, False, 1.0, "1", None):
+            state._note_scene_the_server_sent_this_session_to(not_a_scene)
+        self.assertEqual(
+            getattr(state, "scenes_the_server_sent_this_session_to"), set()
+        )
+
+        moved = (x + 11.0, y - 11.0, z)
+        err = self._report(state, *moved)
+        self.assertEqual(self._withheld_lines(err), [])
+        self.assertEqual(self._stored(state)[0], 1)
 
     # ----- the fence: a guess login would accept is still written ---------
 
@@ -404,7 +614,7 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
         self.assertEqual(self._stored(state), before)
         self.assertEqual(
             self._withheld_lines(err),
-            ["%s %d" % (WITHHELD_TOKEN, LOGIN_ACCEPTED_SCENE_ID)],
+            ["%s %d reason=%s" % (WITHHELD_TOKEN, LOGIN_ACCEPTED_SCENE_ID, UNREADABLE)],
         )
 
     # ----- the session double that predates the keyword -------------------
@@ -447,7 +657,7 @@ class DurableRowTwoOwnersTests(unittest.TestCase):
         )
         self.assertEqual(
             self._withheld_lines(err),
-            ["%s %d" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID)],
+            ["%s %d reason=%s" % (WITHHELD_TOKEN, UNREFUTABLE_SCENE_ID, REFUSED)],
         )
         self.assertEqual(
             self._memory(state),

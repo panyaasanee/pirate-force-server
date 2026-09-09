@@ -1738,3 +1738,82 @@ class ArrivalFindingsPaidTests(_JourneyFixture):
             state._m2_arrival_expected, parked,
             "a journey does not expire because a GM warped in the middle of it",
         )
+
+
+class TheJourneysDestinationIsLatchedForTheDurableFenceTests(_JourneyFixture):
+    """The M2 half of the per-scene latch runtime.py's write fence reads.
+
+    WHY THIS CLASS EXISTS.  The durable-write fence added for CORE-REQUEST
+    `1808` asks `login_would_accept` about a row only when the scene is one
+    THIS SERVER sent the connection to, and the two resync sites are what
+    record that.  The GM site is pinned by
+    `tests/test_durable_row_two_owners.py`; this site had no pin at all, and
+    a mutant that deleted its latch call survived that file and this one.
+
+    WHY THE FIXTURE BENDS THE REGISTRY BACK.  The relabel fence and the write
+    fence read `login_would_accept` at DIFFERENT times -- the relabel on the
+    echo frame, the write on every TargetPos after it -- so a registry that
+    is open at the first and shut at the second is not a contrived case, it
+    is the only case in which the write fence is the LAST line of defence
+    rather than a repeat of the first.  `_registry_open_at_login_on` is the
+    fixture this file already uses to let the relabel happen at all for a
+    decreed sea scene; leaving its context restores the shipped rows, which
+    refuse 17.  Without the latch the step after the journey stores
+    `(17, coordinates)`: a row PANYA `1218` says login must take back, that
+    today's login refuses -- a character that cannot be played.
+    """
+
+    SEA_MARKER = 17
+
+    def _stored_scene(self, state):
+        return self.store.get_character(
+            state.foundation.selected.id
+        ).position.scene_id
+
+    def test_a_sea_journey_latches_its_scene_for_the_write_fence(self):
+        scene_id = self._destination_scene(self.SEA_MARKER)
+        with self._registry_open_at_login_on(scene_id):
+            state, actions = self._journey("m2latch01", marker_id=self.SEA_MARKER)
+            self.assertEqual(len(self._of(actions, TRANSPORT_ACTION)), 1)
+            self.assertEqual(
+                state.foundation.selected.position.scene_id, scene_id,
+                "the relabel must have happened or this proves nothing",
+            )
+        # Back on the shipped rows: login refuses the sea today.
+        self.assertFalse(warp_scene_persist.login_would_accept(scene_id))
+        self.assertIn(
+            scene_id,
+            getattr(state, "scenes_the_server_sent_this_session_to", set()),
+        )
+
+        before = self._stored_scene(state)
+        position = state.foundation.selected.position
+        self._report(state, position.x + 9.0, position.y + 9.0, position.z)
+
+        self.assertEqual(self._stored_scene(state), before)
+        self.assertIn(
+            "durable_row_withheld_login_refuses_this_scene_scene_%d" % scene_id,
+            state.events,
+        )
+
+    def test_an_ordinary_marker_leaves_the_row_writable(self):
+        """The other side: a latched scene login DOES accept still writes.
+
+        Marker 2 is the ordinary in-game case the sibling class drives, and a
+        latch that fenced every journey -- rather than every journey login
+        refuses -- would take position saving away from the M2 feature it was
+        added to protect.
+        """
+        marker_id = 2
+        scene_id = self._destination_scene(marker_id)
+        self.assertTrue(warp_scene_persist.login_would_accept(scene_id))
+        state, actions = self._journey("m2latch02", marker_id=marker_id)
+        self.assertEqual(state.foundation.selected.position.scene_id, scene_id)
+
+        position = state.foundation.selected.position
+        self._report(state, position.x + 9.0, position.y + 9.0, position.z)
+
+        self.assertEqual(self._stored_scene(state), scene_id)
+        self.assertFalse(
+            [e for e in state.events if e.startswith("durable_row_withheld")]
+        )
