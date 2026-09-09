@@ -214,9 +214,24 @@ class TheLedgerIsAskedAboutTheRightQuestTests(unittest.TestCase):
                                                       self.log.append)
 
     def test_a_poisoned_prerequisite_is_not_read_as_unfinished(self):
+        """Nor as ANY other real flag -- not just "not Finish".
+
+        pf-adversary (round `z113cx` addendum, D6): the first version of
+        this test asserted the refusal answered `quest.QUEST_NONE`, which
+        happens to leave THIS ONE comparison (`== Quest.Finish`) correctly
+        unsatisfied, but is itself the number `q_class.lua`'s
+        `Accept_Check` compares `== Quest.None` six times -- and measured
+        to flip all six open.  The title was already true; the assertion
+        was not proof of it, only a coincidence of which constant this
+        fixture happened to compare against.
+        """
         self.adapter.set_quest_flag(7, 99, quest.QUEST_NONE)   # refused
         ns = _namespace(self.adapter, self.log, character_id=7, quest_id=33)
-        self.assertEqual(ns["GetQuestFlag"](99), quest.QUEST_NONE)
+        answer = ns["GetQuestFlag"](99)
+        self.assertEqual(answer, quest.QUEST_FLAG_UNREADABLE)
+        self.assertNotEqual(answer, quest.QUEST_NONE)
+        self.assertNotEqual(answer, quest.QUEST_ACTIVE)
+        self.assertNotEqual(answer, quest.QUEST_FINISH)
         self.assertTrue(any("quest=99" in line and
                             line.startswith(qs_signal.UNREADABLE_TOKEN)
                             for line in self.log))
@@ -230,6 +245,53 @@ class TheLedgerIsAskedAboutTheRightQuestTests(unittest.TestCase):
         ns = _namespace(self.adapter, self.log, character_id=7, quest_id=33)
         ns["SetFlag"](quest.QUEST_ACTIVE)                      # refused -> 33
         self.assertEqual(ns["GetQuestFlag"](99), quest.QUEST_FINISH)
+
+
+class TheNoneComparisonDoesNotFlipOpenTests(unittest.TestCase):
+    """D6 (pf-adversary, round `z113cx` addendum, CRITICAL): the shape
+    `q_class.lua`'s `Accept_Check` measured, replayed directly.
+
+    That gate is six conditions of the form
+    `Quest.GetQuestFlag(Quest.VarN) == Quest.None` ORed together -- "this
+    prerequisite has NOT been started" as the thing that lets the quest
+    be accepted.  Answering the OLD `QUEST_NONE` on a refused read made
+    every one of those six true (measured: the gate returned 1 instead of
+    refusing).  This class pins the fix at the one comparison the corpus
+    actually performs, not just the "not Finish" shape the fixture above
+    happened to exercise.
+    """
+
+    def setUp(self):
+        self.log = []
+        self.store = WriteLockedStore()
+        self.adapter = qss.StoreBackedQuestStateStore(self.store,
+                                                      self.log.append)
+
+    def test_a_poisoned_flag_row_does_not_read_as_none(self):
+        self.adapter.set_quest_flag(7, 41, quest.QUEST_ACTIVE)  # refused
+        ns = _namespace(self.adapter, self.log, character_id=7, quest_id=33)
+        self.assertNotEqual(ns["GetQuestFlag"](41), quest.QUEST_NONE,
+                            "a script's `== Quest.None` gate must not read "
+                            "an unreadable prerequisite as satisfied")
+
+    def test_get_flag_of_the_running_quest_does_not_read_as_none_either(self):
+        """`GetFlag()` (no argument) is the same gate over the RUNNING
+        quest, e.g. re-checking one's own not-yet-accepted state."""
+        ns = _namespace(self.adapter, self.log, character_id=7, quest_id=33)
+        self.adapter.set_quest_flag(7, 33, quest.QUEST_ACTIVE)  # refused
+        self.assertNotEqual(ns["GetFlag"](), quest.QUEST_NONE)
+
+    def test_the_unreadable_answer_is_outside_every_value_a_write_can_store(self):
+        """The sentinel is safe BECAUSE no write can ever produce it --
+        not a property that happens to hold for the three named
+        constants, but a range fact about `SetFlag`/`SetQuestFlag`
+        (`_coerce_int(..., _MAX_FLAG_VALUE)`, i.e. `0..0xFFFF`)."""
+        self.assertLess(quest.QUEST_FLAG_UNREADABLE, 0)
+        self.adapter.set_quest_flag(7, 41, quest.QUEST_ACTIVE)  # refused
+        ns = _namespace(self.adapter, self.log, character_id=7, quest_id=33)
+        answer = ns["GetQuestFlag"](41)
+        for custom_value in (0, 1, 2, 3, 100, 0xFFFF):
+            self.assertNotEqual(answer, custom_value)
 
 
 class TheRefusalIsNotForeverTests(unittest.TestCase):
@@ -406,8 +468,67 @@ class TheLedgerHoldsUnderConcurrencyTests(unittest.TestCase):
         self.assertEqual(ledger.unreadable(1, 33), "write-locked")
 
 
-if __name__ == "__main__":       # pragma: no cover
-    unittest.main()
+class TheLedgerSaturationIsObservableTests(unittest.TestCase):
+    """D2 (pf-adversary, round `z113cx` addendum, HIGH -- new waste this
+    lane's own previous round created): the ledger is one per BACKING
+    STORE, shared by every session over it, with no per-character
+    fairness -- one character filling the 4096-row cap silently costs
+    every OTHER character their own poisoned-row protection, and
+    ``saturated()`` had no reader in ``src/`` to say so.  This does not
+    add fairness (still open -- see the round's own letter to COO); it
+    makes a drop make noise, which is the alternative D2 offered.
+    """
+
+    def test_record_reports_the_drop_it_makes(self):
+        ledger = qs_signal.RefusalLedger(cap=2)
+        self.assertFalse(ledger.record(1, 33, "write-locked"))
+        self.assertFalse(ledger.record(2, 33, "write-locked"))
+        self.assertTrue(ledger.record(3, 33, "write-locked"),
+                        "the third row cannot fit and must say so")
+
+    def test_a_duplicate_row_is_kept_not_reported_as_a_drop(self):
+        ledger = qs_signal.RefusalLedger(cap=1)
+        self.assertFalse(ledger.record(1, 33, "write-locked"))
+        self.assertFalse(ledger.record(1, 33, "write-locked"),
+                         "the same row again is kept, not dropped")
+
+    def test_saturation_is_announced_exactly_once(self):
+        ledger = qs_signal.RefusalLedger(cap=1)
+        ledger.record(1, 33, "write-locked")
+        ledger.record(2, 33, "write-locked")   # dropped
+        self.assertTrue(ledger.mark_saturation_announced())
+        self.assertFalse(ledger.mark_saturation_announced())
+        ledger.record(3, 33, "write-locked")   # dropped again
+        self.assertFalse(ledger.mark_saturation_announced(),
+                         "already announced once; must not repeat")
+
+    def test_the_adapter_logs_the_drop_once_per_store_not_per_adapter(self):
+        """``dispatch.load_quest_script`` builds a fresh adapter every
+        run, but the ledger -- and so the announcement -- belongs to the
+        STORE underneath (A1's own fix, module docstring): a second
+        adapter over the same saturated store must not print a second
+        line."""
+        store = WriteLockedStore()
+        ledger = qs_signal.ledger_for(store)
+        for quest_id in range(qs_signal.LEDGER_CAP):
+            ledger.record(1, quest_id, "write-locked")
+
+        first_log = []
+        first_adapter = qss.StoreBackedQuestStateStore(store,
+                                                       first_log.append)
+        first_adapter.set_quest_counter(1, qs_signal.LEDGER_CAP, "x", 1)
+        first_hits = [line for line in first_log
+                     if line.startswith(qss.LEDGER_SATURATED_TOKEN)]
+        self.assertEqual(len(first_hits), 1, first_hits)
+
+        second_log = []
+        second_adapter = qss.StoreBackedQuestStateStore(store,
+                                                        second_log.append)
+        second_adapter.set_quest_counter(1, qs_signal.LEDGER_CAP + 1, "y", 1)
+        self.assertEqual(
+            [line for line in second_log
+             if line.startswith(qss.LEDGER_SATURATED_TOKEN)],
+            [])
 
 
 class TheMemoryOutlivesTheDispatchTests(unittest.TestCase):
@@ -539,3 +660,7 @@ class TheLedgerKeysRowsNotPairsTests(unittest.TestCase):
     def test_an_unknown_kind_is_refused_not_silently_accepted(self):
         with self.assertRaises(ValueError):
             self.ledger.record(7, 33, "write-locked", "rumour", "")
+
+
+if __name__ == "__main__":       # pragma: no cover
+    unittest.main()

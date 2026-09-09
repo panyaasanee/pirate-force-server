@@ -181,6 +181,7 @@ class RefusalLedger:
         self._lock = threading.RLock()
         self._rows: Dict[Tuple[int, int, str, str], str] = {}
         self._saturated = False
+        self._saturation_announced = False
 
     @staticmethod
     def _key(character_id: int, quest_id: int, kind: str,
@@ -195,19 +196,32 @@ class RefusalLedger:
                 "" if kind == FLAG_ROW else name)
 
     def record(self, character_id: int, quest_id: int, reason: str,
-               kind: str = COUNTER_ROW, name: str = "") -> None:
-        """Remember that a write to this ROW was refused."""
+               kind: str = COUNTER_ROW, name: str = "") -> bool:
+        """Remember that a write to this ROW was refused.
+
+        Returns ``True`` iff THIS row was dropped for want of room in the
+        ledger -- i.e. the row is NOT tracked and a later gate reading it
+        will see "clean" rather than "unreadable".  ``False`` covers both
+        the ordinary case (recorded) and an already-poisoned row (kept, not
+        dropped).  pf-adversary (round ``z113cx`` addendum, D2): the ledger
+        is process-wide (one per backing store, every session sharing it),
+        so a return value only the caller can act on is what lets a
+        production caller announce a drop instead of it staying invisible
+        -- :meth:`saturated` alone stayed unread in ``src/`` and a dropped
+        row and a healthy one looked identical to every caller.
+        """
         key = self._key(character_id, quest_id, kind, name)
         with self._lock:
             if key in self._rows:
                 # Keep the FIRST reason: it is the one that names why the
                 # progress is missing.  Later calls fail for whatever the
                 # store is doing now, which is a symptom of the same gap.
-                return
+                return False
             if len(self._rows) >= self._cap:
                 self._saturated = True
-                return
+                return True
             self._rows[key] = reason
+            return False
 
     def clear(self, character_id: int, quest_id: int,
               kind: str = COUNTER_ROW, name: str = "") -> None:
@@ -242,6 +256,24 @@ class RefusalLedger:
         """True once a row has been dropped for want of room."""
         with self._lock:
             return self._saturated
+
+    def mark_saturation_announced(self) -> bool:
+        """True the FIRST time this is called after saturation, else False.
+
+        pf-adversary (round ``z113cx`` addendum, D2): this ledger is one
+        per BACKING STORE, not per adapter, and ``dispatch.load_quest_
+        script`` builds a fresh adapter per dispatch -- so a caller that
+        logs on every dropped :meth:`record` would print one line per
+        script run for as long as the process stays saturated.  This flips
+        once, on the shared ledger, so a caller wires "announce a drop"
+        with a single call and gets it exactly once per ledger regardless
+        of how many adapters share it.
+        """
+        with self._lock:
+            if self._saturation_announced:
+                return False
+            self._saturation_announced = True
+            return True
 
     def rows(self) -> Tuple[Tuple[Tuple[int, int, str, str], str], ...]:
         """Every remembered row, sorted -- for tests and operators."""

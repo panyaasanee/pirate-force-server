@@ -123,6 +123,14 @@ _COUNTER_FIELD = "counter_value"
 VOLATILE_TOKEN = "LUA_QUEST_STATE_VOLATILE"
 #: Emitted when a single read/write is refused rather than performed.
 REFUSED_TOKEN = "LUA_QUEST_STATE_REFUSED"
+#: Emitted ONCE per ledger (pf-adversary round `z113cx` addendum, D2) the
+#: first time a poisoned-row write is dropped because the process-wide
+#: ledger (:data:`quest_state_signal.LEDGER_CAP` rows) is full.  Before
+#: this token existed, :meth:`quest_state_signal.RefusalLedger.saturated`
+#: had no production reader anywhere in ``src/``: a drop here means a row
+#: this server SHOULD have refused instead reads clean, silently, for as
+#: long as the process runs.
+LEDGER_SATURATED_TOKEN = "LUA_QUEST_LEDGER_SATURATED"
 
 #: The answer a refused read/write hands back.  Deliberately the same 0
 #: ``lua_api.quest.STUB_DEFAULT`` already hands back (not imported: that
@@ -268,7 +276,18 @@ class StoreBackedQuestStateStore:
         ones.)
         """
         if wrote:
-            self.refusals.record(character_id, quest_id, reason, kind, name)
+            dropped = self.refusals.record(
+                character_id, quest_id, reason, kind, name)
+            if dropped and self._log is not None:
+                # D2's simplest fix, not the fuller per-character admission
+                # control the addendum also offered -- this makes the drop
+                # OBSERVABLE, it does not make it fair between characters
+                # (still open; see the round file's letter to COO).
+                if self.refusals.mark_saturation_announced():
+                    self._log(
+                        "%s cap=%d character=%d quest=%d row=%s:%s"
+                        % (LEDGER_SATURATED_TOKEN, quest_state_signal.LEDGER_CAP,
+                           character_id, quest_id, kind, name))
         answer = quest_state_signal.refused(reason)
         if self._log is None:
             return answer

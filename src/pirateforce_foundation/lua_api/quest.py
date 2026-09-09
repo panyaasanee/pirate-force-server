@@ -222,6 +222,31 @@ _STATUS_CONSTANTS = {
     "Finish": QUEST_FINISH,
 }
 
+#: What ``GetQuestFlag``/``GetFlag`` answer when the flag ROW itself is
+#: unreadable -- NEVER :data:`QUEST_NONE` (pf-adversary round ``z113cx``
+#: addendum, D6, CRITICAL).  Measured on the shipped corpus: ``GetQuestFlag``
+#: is compared 410 times and never once used as a boolean; 26 of those
+#: compare ``== Quest.None`` or ``== 0`` and read that as "not started /
+#: prerequisite not in the way".  ``Quest/q_class.lua``'s ``Accept_Check``
+#: is six such comparisons in one gate, and answering the old ``QUEST_NONE``
+#: on a poisoned flag row flips all six open (measured: the gate returns 1
+#: instead of refusing), the same fail-open shape D3 of round ``7cf5ak``
+#: closed for ``VarN`` -- reopened here because ``QUEST_NONE`` IS a legal
+#: stored value, so a script cannot tell "never set" from "cannot be read"
+#: from the number alone.
+#:
+#: ``-1`` is the fix: ``SetFlag``/``SetQuestFlag`` coerce every write through
+#: ``_coerce_int(..., _MAX_FLAG_VALUE)``, i.e. the closed range
+#: ``0..0xFFFF``, so no write this server ever performs can leave a flag
+#: row holding this number.  Every equality the corpus runs against
+#: ``Quest.None``/``Active``/``Finish`` or a literal therefore comes out
+#: False on a flag this server cannot read -- "unknown" answers false to
+#: every question, exactly the still-standing house rule ("do not know =
+#: refuse", NOW.md `0845`) -- not just the one comparison this round's
+#: adversary happened to measure.  Kept out of ``_STATUS_CONSTANTS``: it
+#: is not a flag a script ever sets, only one this host can answer with.
+QUEST_FLAG_UNREADABLE = -1
+
 
 def _server_clock() -> datetime:
     if ZoneInfo is None:  # pragma: no cover - exercised only on a stdlib without zoneinfo
@@ -1129,9 +1154,14 @@ class RealQuestNamespace:
                                             quest_id,
                                             quest_state_signal.FLAG_ROW)
                 if reason is not None:
+                    # NOT `QUEST_NONE` (pf-adversary D6, round `z113cx`
+                    # addendum): that IS a legal stored value, so a script
+                    # comparing `== Quest.None` cannot tell "never set" from
+                    # "cannot be read" -- see `QUEST_FLAG_UNREADABLE`'s own
+                    # docstring for the corpus measurement this closes.
                     _log_unreadable(self._log, "GetQuestFlag", self._context,
-                                    reason, QUEST_NONE, quest_id)
-                    return QUEST_NONE
+                                    reason, QUEST_FLAG_UNREADABLE, quest_id)
+                    return QUEST_FLAG_UNREADABLE
                 result = QUEST_NONE if value is None else value
                 _log_flag(self._log, "GetQuestFlag", self._context, quest_id, result)
                 return result
@@ -1150,9 +1180,11 @@ class RealQuestNamespace:
                                             None,
                                             quest_state_signal.FLAG_ROW)
                 if reason is not None:
+                    # See `GetQuestFlag` just above: same D6 fix, same
+                    # reason `QUEST_NONE` must not be the answer here.
                     _log_unreadable(self._log, "GetFlag", self._context,
-                                    reason, QUEST_NONE)
-                    return QUEST_NONE
+                                    reason, QUEST_FLAG_UNREADABLE)
+                    return QUEST_FLAG_UNREADABLE
                 result = QUEST_NONE if value is None else value
                 _log_flag(self._log, "GetFlag", self._context, self._context.quest_id, result)
                 return result
