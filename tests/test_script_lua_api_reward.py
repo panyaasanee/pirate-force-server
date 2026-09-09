@@ -1109,5 +1109,180 @@ class BalanceDoorTests(unittest.TestCase):
         self.assertIsNone(reason)
 
 
+class MintingStore:
+    """Records every ``mint_backpack_item`` call; never touches a row.
+
+    The (i) half of ``COO-DECISION 20260909_1312``'s two-way test: a store
+    that HAS the door, called with the agreed argument order.
+    """
+
+    def __init__(self):
+        self.calls: list = []
+
+    def mint_backpack_item(self, sid, character_id, item_id, quantity,
+                           category):
+        self.calls.append((sid, character_id, item_id, quantity, category))
+        return object()  # the BackpackState -- unread by reward.mint
+
+
+class ExplodingMintStore:
+    """Has the door; the door itself raises -- ``store_error``, not a mint."""
+
+    def mint_backpack_item(self, sid, character_id, item_id, quantity,
+                           category):
+        raise ValueError("backpack is full (40/40 slots); nothing was minted")
+
+
+class MintTests(unittest.TestCase):
+    """``reward.mint`` -- the fifth door, and the first over an ITEM.
+
+    Pins ``COO-DECISION 20260909_1312``'s two-way test literally: (i) a
+    store WITH ``mint_backpack_item`` is called with the agreed arguments
+    (spied, not just asserted possible) and (ii) a store WITHOUT it is
+    refused BY THE EXACT NAME ``no-item-minter`` and never minted a row of
+    its own.  Every other case pins a refusal this door alone can produce
+    (unknown item, colliding category, bad quantity, no session).
+    """
+
+    def _mint(self, character_id=9, item_id=11, quantity=3, sid="sess-1",
+              store=None):
+        lines: list = []
+        minted, reason = reward.mint(
+            "Player.AddItem", character_id, item_id, quantity, sid=sid,
+            store=store, log=lines.append)
+        return minted, reason, lines
+
+    def test_a_store_with_the_door_is_called_with_the_agreed_arguments(self):
+        store = MintingStore()
+        minted, reason, lines = self._mint(store=store)
+        self.assertIsNone(reason)
+        self.assertEqual(store.calls, [("sess-1", 9, 11, 3, "quest")])
+        self.assertIsNotNone(minted)
+        self.assertEqual(minted.category, "quest")
+        self.assertTrue(any("LUA_PLAYER_MINT Player.AddItem" in line
+                            and "item_id=11" in line and "quantity=3" in line
+                            for line in lines), lines)
+
+    def test_a_store_without_the_door_refuses_by_exact_name_and_mints_nothing(
+            self):
+        class NoMinter:
+            pass
+
+        minted, reason, lines = self._mint(store=NoMinter())
+        self.assertIsNone(minted)
+        self.assertEqual(reason, "no-item-minter")
+        self.assertEqual(reason, reward.REFUSE_NO_ITEM_MINTER)
+        self.assertTrue(any("refused=no-item-minter" in line
+                            for line in lines), lines)
+
+    def test_no_store_at_all_is_the_earlier_more_general_refusal(self):
+        minted, reason, _lines = self._mint(store=None)
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_NO_STORE)
+
+    def test_an_id_no_table_knows_is_refused_before_the_store_is_asked(self):
+        store = MintingStore()
+        minted, reason, _lines = self._mint(item_id=999999999, store=store)
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_UNKNOWN_ITEM)
+        self.assertEqual(store.calls, [])
+
+    def test_a_colliding_id_is_refused_rather_than_guessed(self):
+        """``item_id=1`` is both a misc AND a quest row -- measured, not
+        assumed (this lane's own module docstring cites the same shape)."""
+        from pirateforce_foundation.gm import item_catalog
+        self.assertEqual(item_catalog.item_category(1), ("misc", "quest"))
+        store = MintingStore()
+        minted, reason, lines = self._mint(item_id=1, store=store)
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_AMBIGUOUS_ITEM_CATEGORY)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("candidates=" in line for line in lines), lines)
+
+    def test_a_store_that_raises_is_a_store_error_and_mints_nothing_of_its_own(
+            self):
+        minted, reason, lines = self._mint(store=ExplodingMintStore())
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_STORE_ERROR)
+        self.assertTrue(any("backpack is full" in line for line in lines),
+                        lines)
+
+    def test_quantity_below_one_is_refused(self):
+        store = MintingStore()
+        for bad in (0, -1, -100):
+            with self.subTest(bad=bad):
+                minted, reason, _lines = self._mint(quantity=bad, store=store)
+                self.assertIsNone(minted)
+                self.assertEqual(reason, reward.REFUSE_BAD_QUANTITY)
+        self.assertEqual(store.calls, [])
+
+    def test_a_non_int_quantity_is_the_same_refusal_as_a_negative_one(self):
+        store = MintingStore()
+        minted, reason, _lines = self._mint(quantity="3", store=store)
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_BAD_QUANTITY)
+
+    def test_no_session_is_refused_before_the_store_is_asked(self):
+        store = MintingStore()
+        for bad_sid in ("", None):
+            with self.subTest(sid=bad_sid):
+                minted, reason, _lines = self._mint(sid=bad_sid, store=store)
+                self.assertIsNone(minted)
+                self.assertEqual(reason, reward.REFUSE_NO_SESSION)
+        self.assertEqual(store.calls, [])
+
+    def test_character_zero_is_the_inert_bucket_not_a_player(self):
+        store = MintingStore()
+        minted, reason, _lines = self._mint(character_id=0, store=store)
+        self.assertIsNone(minted)
+        self.assertEqual(reason, reward.REFUSE_NO_CHARACTER)
+        self.assertEqual(store.calls, [])
+
+    def test_every_refusal_this_door_produces_is_in_the_closed_set(self):
+        store_missing = object()
+        cases = [
+            dict(store=None),
+            dict(store=store_missing),
+            dict(item_id=999999999, store=MintingStore()),
+            dict(item_id=1, store=MintingStore()),
+            dict(quantity=0, store=MintingStore()),
+            dict(sid="", store=MintingStore()),
+            dict(character_id=0, store=MintingStore()),
+            dict(store=ExplodingMintStore()),
+        ]
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs):
+                _minted, reason, _lines = self._mint(**kwargs)
+                self.assertIn(reason, reward.MINT_REFUSALS)
+
+
+class NoSelfMintedBagSchemaTests(unittest.TestCase):
+    """``lua_api/`` never writes ``character_backpack_items`` itself.
+
+    The second half of ``COO-DECISION 20260909_1312``'s check token: this
+    lane calls ``store.mint_backpack_item`` (LANE-DB's door) and never
+    grows a second write path of its own onto the table that door already
+    owns.  A ``git grep``-shaped guard, run over the files on disk rather
+    than assumed: it fails the day anyone adds
+    ``INSERT INTO character_backpack_items``/``character_backpacks`` to
+    this package, in the same commit that would have made it true.
+    """
+
+    def test_no_lua_api_module_writes_the_backpack_tables_directly(self):
+        import pathlib
+
+        lua_api_dir = (pathlib.Path(__file__).resolve().parents[1]
+                       / "src" / "pirateforce_foundation" / "lua_api")
+        offenders = []
+        for path in sorted(lua_api_dir.glob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for needle in ("INSERT INTO character_backpack",
+                           "UPDATE character_backpack",
+                           "INSERT INTO character_backpacks"):
+                if needle in text:
+                    offenders.append((path.name, needle))
+        self.assertEqual(offenders, [])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

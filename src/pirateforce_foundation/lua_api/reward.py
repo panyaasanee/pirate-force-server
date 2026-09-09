@@ -63,6 +63,7 @@ from typing import Any, Callable, Optional, Protocol, Tuple
 
 from . import quest_criteria
 from .quest_criteria import CriteriaAmount
+from ..gm import item_catalog
 from ..store import (
     InsufficientSkillPointsError,
     InsufficientTypedAttributeError,
@@ -199,6 +200,41 @@ REFUSE_UNMEASURED = "balance_was_never_measured"
 #: half-built process from a sick one.
 REFUSE_STORE_CANNOT_READ = "store_has_no_typed_attribute_read"
 
+#: :func:`mint` only.  The store has no ``mint_backpack_item`` -- the
+#: EXACT name ``COO-DECISION 20260909_1312`` asked this lane to refuse
+#: BY, so a census grepping the console can tell "the door does not exist
+#: yet" from every other reason a mint did not happen.  Named with a
+#: hyphen (not the underscore every other token in this module uses)
+#: because that letter spelled it that way and a test pins the literal
+#: string, not this module's usual convention.
+REFUSE_NO_ITEM_MINTER = "no-item-minter"
+#: :func:`mint` only.  ``item_id`` is not in any of
+#: ``gm.item_catalog.CATEGORIES`` -- no table this project has extracted
+#: knows this number at all.
+REFUSE_UNKNOWN_ITEM = "unknown_item"
+#: :func:`mint` only.  ``item_id`` is in MORE than one category's table
+#: (``gm.item_catalog``'s own docstring measures hundreds of these) and a
+#: script's ``Player.AddItem(id, n)`` call carries no category of its
+#: own -- this lane will not guess which item a colliding id means
+#: (``LANE-DB``'s ``mint_backpack_item`` docstring: "if your number is in
+#: the collision zone, say which table it means").  A hard data-format
+#: limit, not a caution cap: the ``PANYA-ORDER 20260908_2220`` exception
+#: for "ขีดจำกัดรูปแบบข้อมูล" covers exactly this shape.
+REFUSE_AMBIGUOUS_ITEM_CATEGORY = "ambiguous_item_category"
+#: :func:`mint` only.  Not an ``int``, or less than 1 -- the same floor
+#: ``store.mint_backpack_item`` itself enforces, refused here first so a
+#: bad quantity is logged under THIS door's own name rather than however
+#: the store's ``TypeError``/``ValueError`` happens to be worded.
+REFUSE_BAD_QUANTITY = "quantity_is_not_a_positive_integer"
+#: :func:`mint` only.  ``store.mint_backpack_item`` needs a session id to
+#: prove ownership of the character being minted into
+#: (``commit_acquired_backpack_item``'s own gate); a caller with no real
+#: session (every existing corpus/spike test, ``PlayerContext``'s own
+#: ``sid=""`` default) is refused here rather than forwarded to a store
+#: that would read the empty string as "no such session" and answer with
+#: a less legible error.
+REFUSE_NO_SESSION = "no_session"
+
 #: Every reason this module itself can produce.  A test asserts
 #: :func:`pay` never returns a reason outside this set union
 #: ``quest_criteria``'s.
@@ -208,6 +244,18 @@ REFUSALS: frozenset = frozenset({
     REFUSE_UNKNOWN_KIND, REFUSE_BAD_AMOUNT,
     REFUSE_STORE_CANNOT_SPEND, REFUSE_INSUFFICIENT, REFUSE_UNMEASURED,
     REFUSE_STORE_CANNOT_READ,
+})
+
+#: Every reason :func:`mint` itself can produce -- a separate closed set
+#: (not folded into :data:`REFUSALS`) because :func:`mint` shares no
+#: refusal token with :func:`pay`/:func:`grant`/:func:`charge` except
+#: :data:`REFUSE_NO_STORE`/:data:`REFUSE_NO_CHARACTER`/
+#: :data:`REFUSE_STORE_ERROR`, and a test pins this set the same way
+#: :data:`REFUSALS` is pinned for the other three doors.
+MINT_REFUSALS: frozenset = frozenset({
+    REFUSE_NO_CHARACTER, REFUSE_UNKNOWN_ITEM, REFUSE_AMBIGUOUS_ITEM_CATEGORY,
+    REFUSE_BAD_QUANTITY, REFUSE_NO_SESSION, REFUSE_NO_STORE,
+    REFUSE_NO_ITEM_MINTER, REFUSE_STORE_ERROR,
 })
 
 
@@ -474,6 +522,163 @@ def grant(api_name: str, kind: str, character_id: int, amount: int, *,
                     balance_after=balance_after)
     log("LUA_PLAYER_GRANT %s %s" % (api_name, granted.log_fields()))
     return granted, None
+
+
+class QuestItemMintStore(Protocol):
+    """The one method this lane needs to GIVE a character a new item row.
+
+    ``mint_backpack_item(sid, character_id, item_id, quantity, category)
+    -> BackpackState``
+
+    Landed on ``origin/main`` this round (``LANE-DB``, letter
+    ``pf_bridge/notes_to_chief/20260909_1450_LANE-DB-TO-LANE-Q-item-
+    minter-name-store-mint-backpack-item.md``, answering
+    ``COO-DECISION 20260908_2055`` -- "the item minter next to your own
+    door is yours [LANE-DB's], not LANE-Q's to write"). ``store.py``'s own
+    docstring marks the name ``[PROPOSED -- LANE-Q pins the final one]``;
+    this module pins it as given, unchanged, because the shape it landed
+    with already answers this lane's own ask.
+
+    * Composes an ``ItemAttrState`` (next free identity, first free slot)
+      and lands it through ``commit_acquired_backpack_item`` -- the SAME
+      write gate a ground pickup uses, so session ownership, gate-2 shape
+      and atomicity with the identity counter apply for free.  This
+      module does not re-check any of those; a failure there surfaces as
+      whatever exception that gate raises, caught below as
+      :data:`REFUSE_STORE_ERROR`.
+    * ``category`` is REQUIRED and must be a member of
+      ``gm.item_catalog.CATEGORIES``, because hundreds of ids mean a
+      DIFFERENT item depending which of the three source tables is asked
+      -- see :func:`mint`'s own :data:`REFUSE_AMBIGUOUS_ITEM_CATEGORY`.
+    * Raises ``KeyError`` for an ``item_id`` unknown in that category,
+      ``TypeError``/``ValueError`` for a bad ``category``/``quantity``,
+      ``ValueError`` for a full backpack -- all folded into
+      :data:`REFUSE_STORE_ERROR` here, the same "every raise means
+      nothing was committed" posture :func:`_store_delta` already takes
+      for the exp/cash/skill-point doors (``store.connect()`` rolls back
+      before re-raising).
+    * Does NOT cover weapon/armor template ids -- ``gm.item_catalog``
+      only carries misc/consumable/quest.  A quest reward that needs a
+      weapon id is a different door with a different catalog; this
+      module never attempts one (the item stays unminted and
+      :data:`REFUSE_UNKNOWN_ITEM` is logged, same as any other id absent
+      from all three category tables).
+    """
+
+    def mint_backpack_item(self, sid: str, character_id: int, item_id: int,
+                            quantity: int, category: str) -> Any:
+        ...  # pragma: no cover - protocol declaration
+
+
+@dataclass(frozen=True)
+class Mint:
+    """One new backpack row that actually landed.
+
+    No ``BackpackState``/slot/identity carried here on purpose: the row
+    itself belongs to ``store.py``, and this dataclass is a RECEIPT for
+    the log line and the caller, the same scope :class:`Grant` draws
+    around a stat payout rather than the row it moved.
+    """
+
+    api_name: str
+    character_id: int
+    item_id: int
+    category: str
+    quantity: int
+
+    def log_fields(self) -> str:
+        return ("character=%d item_id=%d category=%s quantity=%d"
+                % (self.character_id, self.item_id, self.category,
+                   self.quantity))
+
+
+def _has_item_minter(store: Any) -> bool:
+    """Whether ``store`` offers the door :class:`QuestItemMintStore`
+    describes.
+
+    Capability check, same shape and same reasoning as
+    :func:`_has_atomic_add`: a callable of the right NAME, not an
+    ``isinstance`` a structural ``Protocol`` cannot make meaningful.
+    """
+    return callable(getattr(store, "mint_backpack_item", None))
+
+
+def mint(api_name: str, character_id: int, item_id: int, quantity: int, *,
+         sid: Optional[str] = None,
+         store: Optional[Any] = None,
+         log: Optional[Callable[[str], None]] = None,
+         ) -> Tuple[Optional[Mint], Optional[str]]:
+    """Give a character ONE new backpack row for a catalog item, or say why
+    not.
+
+    The fifth door onto this seam, and the first over an ITEM rather than
+    a column.  Answers ``COO-DECISION 20260909_1452`` ("the Lua host is
+    yours, including the player payout doors") and
+    ``COO-DECISION 20260909_1312`` (accepting this lane's own shape (c),
+    ``20260908_2226``): the two-way test that call site now needs is
+    exactly what this door produces -- called with a store that HAS
+    ``mint_backpack_item``, and refused BY NAME with a store that does
+    not, never minting a row itself either way.
+
+    CATEGORY IS RESOLVED HERE, NOT ASKED OF THE CALLER, because
+    ``Player.AddItem(item_id, quantity)`` is the corpus's own arity
+    (``gamedata/PF_GAMEDATA_LUA_API.tsv``, 1430 call sites, arity 2 --
+    there is no third argument a script could supply).  When ``item_id``
+    resolves in exactly one of ``gm.item_catalog.CATEGORIES`` this door
+    picks it un-ambiguously; when it resolves in more than one
+    (``gm.item_catalog.item_category``'s own collision note) this door
+    REFUSES rather than guess -- the same rule ``store.mint_backpack_item``
+    itself would apply if handed a bare id, applied one layer earlier so
+    the refusal is logged under THIS lane's own console token.
+
+    NEVER RAISES FOR A REFUSAL, and NEVER MINTS A ROW ITSELF: every
+    refusal here (unknown item, ambiguous category, no minter, a store
+    error) leaves the calling script running and leaves
+    ``character_backpack_items`` exactly as it was, the same all-or-
+    nothing posture :func:`grant`/:func:`charge`/:func:`pay` already keep.
+    """
+    log = log or (lambda _line: None)
+
+    def _refuse(why: str, extra: str = "") -> Tuple[None, str]:
+        log("LUA_PLAYER_MINT %s character=%s item_id=%r quantity=%r "
+            "refused=%s%s"
+            % (api_name, character_id, item_id, quantity, why, extra))
+        return None, why
+
+    if isinstance(character_id, bool) or not isinstance(character_id, int) \
+            or character_id <= 0:
+        return _refuse(REFUSE_NO_CHARACTER)
+    if isinstance(item_id, bool) or not isinstance(item_id, int):
+        return _refuse(REFUSE_UNKNOWN_ITEM)
+    if isinstance(quantity, bool) or not isinstance(quantity, int) \
+            or quantity < 1:
+        return _refuse(REFUSE_BAD_QUANTITY)
+    if not sid or not isinstance(sid, str):
+        return _refuse(REFUSE_NO_SESSION)
+    if store is None:
+        return _refuse(REFUSE_NO_STORE)
+    if not _has_item_minter(store):
+        return _refuse(REFUSE_NO_ITEM_MINTER)
+
+    categories = item_catalog.item_category(item_id)
+    if not categories:
+        return _refuse(REFUSE_UNKNOWN_ITEM)
+    if len(categories) > 1:
+        return _refuse(REFUSE_AMBIGUOUS_ITEM_CATEGORY,
+                       " candidates=%s" % (categories,))
+    category = categories[0]
+
+    try:
+        store.mint_backpack_item(sid, character_id, item_id, quantity,
+                                 category)
+    except Exception as exc:  # noqa: BLE001 - deliberate, see charge()
+        return _refuse(REFUSE_STORE_ERROR,
+                       " err=%s: %s" % (type(exc).__name__, exc))
+
+    minted = Mint(api_name=api_name, character_id=character_id,
+                  item_id=item_id, category=category, quantity=quantity)
+    log("LUA_PLAYER_MINT %s %s" % (api_name, minted.log_fields()))
+    return minted, None
 
 
 class QuestChargeStore(Protocol):

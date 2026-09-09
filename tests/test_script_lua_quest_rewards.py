@@ -13,18 +13,34 @@ different reasons and on different machines:
      performs both halves, every member carrying a ``file:line``.
   3. THE GATE BEHAVES (gate-runnable).  The q_class row is refused whole;
      the q_guild_boss2 row -- same script shape, no reward cells -- is NOT,
-     which is the negative result that says the gate reads the ROW; and
-     the moment ``Player.AddItem`` becomes real the group opens by itself.
+     which is the negative result that says the gate reads the ROW.
+
+     ROUND `6gc0zk` MEASURED THE CLAIM THIS SECTION USED TO MAKE HERE AND
+     FOUND IT FALSE: it used to say "the moment ``Player.AddItem`` becomes
+     real the group opens by itself".  ``Player.AddItem`` went real that
+     round (``store.mint_backpack_item`` landed), and ``Q_CLASS.Report_Run``
+     stayed SHUT -- it has five give-side members, not one
+     (``Player.AddItem``, ``Player.AddPpClass``,
+     ``Quest.AddCriteriaCash``, ``Quest.AddCriteriaExp``,
+     ``Quest.AddCriteriaSkillPoint``), and the gate correctly waits on
+     ALL of them, exactly as ``test_a_real_give_does_not_open_a_group_
+     whose_take_is_still_a_stub`` already proved for the take side.  The
+     corrected claim: the group opens only once EVERY member of it is
+     real, and going real one name at a time is expected to leave it
+     shut for several rounds yet.
   4. THE MIRRORS MATCH THE GAME (needs ../pf_bridge, skipped on the gate).
 
-WHAT THIS ROUND DELIBERATELY UNDID.  Round `joa0u6` made
+WHAT AN EARLIER ROUND DELIBERATELY UNDID.  Round `joa0u6` made
 ``Quest/q_class.lua`` take 15,000 off the player for real.  Four lines
 later the same function is supposed to hand over three items through
-``Player.AddItem``, which is a stub.  COO-DECISION ``20260908_0242`` item
-4 chose the free quest over the robbed player, so the tests that pinned
-the charge now pin the refusal, and the join underneath them is asserted
-separately in ``test_script_lua_quest_vars`` so that a gate quietly
-deleting the value cannot pass both.
+``Player.AddItem``, which was a stub then.  COO-DECISION ``20260908_0242``
+item 4 chose the free quest over the robbed player, so the tests that
+pinned the charge pinned the refusal instead, and the join underneath them
+is asserted separately in ``test_script_lua_quest_vars`` so that a gate
+quietly deleting the value cannot pass both.  ``Player.AddItem`` itself
+went real in round `6gc0zk` (``lua_api.reward.mint``, against
+``store.mint_backpack_item``); ``Quest/q_class.lua``'s own group stays
+refused regardless, for the reason layer 3 above now measures.
 """
 import subprocess
 import sys
@@ -58,12 +74,15 @@ GATED_ITEMS = (2480010, 2480011, 2480012)
 
 #: A row of `q_ocean_gather1`, the flagship of the 56 groups
 #: `Player.RemoveItem` opens in round `ad7t6n`.  Its `Report_Run` removes
-#: `n_VARI_2` x `n_VARI_3` (the shipped cells: ten of item 2500533) and
-#: pays with `Player.AddItem`, which is a stub -- so the group is
-#: unpayable and both charge cells are refused.  `n_VARI_4`/`n_VARI_5`
-#: are the teleport scene and the countdown `Accept_Run` reads, in no
-#: group, and must still resolve -- and both ship NON-ZERO, so the
-#: assertion cannot pass by accidentally agreeing with a stub default.
+#: `n_VARI_2` x `n_VARI_3` (the shipped cells: ten of item 2500533) via
+#: `Player.RemoveItem`, still a stub, and pays with `Player.AddItem`,
+#: real since round `6gc0zk` -- so the group is STILL unpayable (the take
+#: side, not the give side, is what is missing now) and both charge cells
+#: are still refused; see `test_a_real_give_does_not_open_a_group_whose_
+#: take_is_still_a_stub`.  `n_VARI_4`/`n_VARI_5` are the teleport scene and
+#: the countdown `Accept_Run` reads, in no group, and must still resolve
+#: -- and both ship NON-ZERO, so the assertion cannot pass by accidentally
+#: agreeing with a stub default.
 GATHER_QUEST_ID = 4501
 GATHER_ITEM = 2500533
 GATHER_COUNT = 10
@@ -598,15 +617,20 @@ class TheGateBehavesTests(unittest.TestCase):
         nothing, and a rule with no test is a comment.  Same script, same
         row, a group table holding ONLY column members: row 8061 has no
         reward id, so its charge stands.
+
+        The give side is deliberately `Player.RemoveItem`, not
+        `Player.AddItem`: `AddItem` went real in round `6gc0zk`, and this
+        test's whole point is a group held shut by a still-stubbed
+        member, not by which specific name that is.
         """
         body = ("Q_CLASS\tReport_Run\ttake\tn_VARI_4\t"
                 "Player.AddCash\tQuest/q_class.lua:60\n"
                 "Q_CLASS\tReport_Run\tgive\tn_REWARD_ITEM1\t"
-                "Player.AddItem\tQuest/q_class.lua:64\n"
+                "Player.RemoveItem\tQuest/q_class.lua:64\n"
                 "Q_GUILD_BOSS2\tReport_Run\ttake\tn_VARI_8\t"
                 "Player.AddCash\tQuest/q_guild_boss2.lua:59\n"
                 "Q_GUILD_BOSS2\tReport_Run\tgive\tn_REWARD_ITEM1\t"
-                "Player.AddItem\tQuest/q_guild_boss2.lua:62\n")
+                "Player.RemoveItem\tQuest/q_guild_boss2.lua:62\n")
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "quest_column_groups.tsv"
@@ -826,17 +850,29 @@ class TheGateBehavesTests(unittest.TestCase):
                           if line.startswith("LUA_QUEST_GROUP_REFUSED")])
 
     def test_one_stubbed_give_api_is_enough_to_hold_the_whole_group(self):
-        """`Quest.RewardItemSelect` real and `Player.AddItem` not is still
-        a half transaction -- the group waits on ALL of its give side."""
-        with mock.patch.object(quest, "REAL_METHODS",
-                               quest.REAL_METHODS | {"RewardItemSelect"}):
+        """Four of `Q_CLASS.Report_Run`'s five give-side members real and
+        `Player.AddPpClass` not is still a half transaction -- the group
+        waits on ALL of its give side.
+
+        `Player.AddItem` was this test's own example of that one stub
+        until round `6gc0zk`, when it went real -- it needs no mocking
+        here any more, and `Player.AddPpClass` (still a stub) takes its
+        place as the single name this test isolates; see
+        `test_additem_alone_is_not_enough_because_the_class_change_is_a_
+        give`, which pins the same group with a different subset real.
+        """
+        with mock.patch.object(
+                quest, "REAL_METHODS",
+                quest.REAL_METHODS | {"RewardItemSelect", "AddCriteriaExp",
+                                      "AddCriteriaSkillPoint",
+                                      "AddCriteriaCash"}):
             namespace, lines = self._namespace(GATED_QUEST_ID)
             self.assertEqual(namespace["Var4"], qr.REFUSED_CELL)
         blocked = [line for line in lines
                    if line.startswith("LUA_QUEST_GROUP_REFUSED")]
         self.assertEqual(len(blocked), 1, blocked)
-        self.assertIn("blocked_on=Player.AddItem", blocked[0])
-        self.assertNotIn("Quest.RewardItemSelect", blocked[0].split(
+        self.assertIn("blocked_on=Player.AddPpClass", blocked[0])
+        self.assertNotIn("Player.AddItem", blocked[0].split(
             "call_site=")[0])
 
     def test_an_unbound_run_refuses_a_reward_name_by_its_own_reason(self):

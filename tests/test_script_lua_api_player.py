@@ -325,9 +325,12 @@ class RealPlayerNamespaceTests(unittest.TestCase):
             ns["MobAppear"](500, True)
 
     def test_a_still_stubbed_method_logs_lua_api_stub_exactly_like_before(self):
+        # RemoveItem, not AddItem: AddItem moved to REAL_METHODS this
+        # round (store.mint_backpack_item landed) -- see
+        # AddItemClosureTests for its own coverage.
         ns, calls = self._namespace()
-        self.assertEqual(ns["AddItem"](1, 2), player.STUB_DEFAULT)
-        self.assertEqual(calls, ["LUA_API_STUB Player.AddItem"])
+        self.assertEqual(ns["RemoveItem"](1, 2), player.STUB_DEFAULT)
+        self.assertEqual(calls, ["LUA_API_STUB Player.RemoveItem"])
 
     def test_every_still_stubbed_name_is_reachable_and_logs_its_own_line(self):
         for name in player.STILL_STUBBED:
@@ -881,6 +884,115 @@ class SignedStatClosureTests(unittest.TestCase):
         self.assertEqual(store.calls, [])
         self.assertEqual(
             sum("LUA_PLAYER_BAD_VALUE" in line for line in calls), 2, calls)
+
+
+class _RecordingMintStore:
+    """Records ``mint_backpack_item`` calls -- the (i) half of the two-way
+    test ``COO-DECISION 20260909_1312`` asked for, at the ``Player.AddItem``
+    call site rather than at ``reward.mint`` directly."""
+
+    def __init__(self):
+        self.calls: list = []
+
+    def mint_backpack_item(self, sid, character_id, item_id, quantity,
+                           category):
+        self.calls.append((sid, character_id, item_id, quantity, category))
+        return object()
+
+
+class AddItemClosureTests(unittest.TestCase):
+    """``Player.AddItem`` -- the first ITEM name to leave ``STILL_STUBBED``.
+
+    ``store.mint_backpack_item`` landed this round (LANE-DB, answering
+    ``COO-DECISION 20260908_2055``), which is what makes this closure real
+    rather than the ``_ITEM_STATE`` stub every other item name still is.
+    The closure itself decides almost nothing (arity, coercion, which
+    context field to read) -- the mint/refuse logic is
+    ``lua_api.reward.mint``'s, pinned on its own in
+    ``test_script_lua_api_reward.py::MintTests``.  What is pinned HERE is
+    that the closure is WIRED to it with the right arguments, including the
+    one this namespace adds this round: ``context.sid``.
+    """
+
+    def _namespace(self, character_id=9, sid="sess-1", store=None):
+        from pirateforce_foundation.lua_api import spec as api_spec
+
+        calls: list = []
+        ns = player.build_namespace(
+            api_spec.NAMESPACE_METHODS["Player"], calls.append,
+            context=player.PlayerContext(character_id=character_id, sid=sid),
+            payout_store=store)
+        return ns, calls
+
+    def test_add_item_is_no_longer_a_stub(self):
+        self.assertNotIn("AddItem", player.STILL_STUBBED)
+        self.assertIn("AddItem", player.REAL_METHODS)
+
+    def test_a_known_unambiguous_item_reaches_the_minter(self):
+        store = _RecordingMintStore()
+        ns, calls = self._namespace(store=store)
+        self.assertEqual(ns["AddItem"](11, 3), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [("sess-1", 9, 11, 3, "quest")])
+        self.assertTrue(any("LUA_PLAYER_MINT Player.AddItem" in line
+                            for line in calls), calls)
+        self.assertNotIn("LUA_API_STUB Player.AddItem", calls)
+
+    def test_a_lua_float_pair_is_the_same_mint(self):
+        store = _RecordingMintStore()
+        ns, _calls = self._namespace(store=store)
+        ns["AddItem"](11.0, 3.0)
+        self.assertEqual(store.calls, [("sess-1", 9, 11, 3, "quest")])
+
+    def test_without_a_payout_store_it_refuses_rather_than_pretending(self):
+        ns, calls = self._namespace(store=None)
+        self.assertEqual(ns["AddItem"](11, 3), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=no_reward_store" in line
+                            for line in calls), calls)
+
+    def test_a_store_without_the_minter_refuses_by_exact_name(self):
+        class NoMinter:
+            pass
+
+        ns, calls = self._namespace(store=NoMinter())
+        self.assertEqual(ns["AddItem"](11, 3), player.STUB_DEFAULT)
+        self.assertTrue(any("refused=no-item-minter" in line
+                            for line in calls), calls)
+
+    def test_wrong_arity_never_reaches_the_store(self):
+        store = _RecordingMintStore()
+        ns, _calls = self._namespace(store=store)
+        self.assertEqual(ns["AddItem"](), player.STUB_DEFAULT)
+        self.assertEqual(ns["AddItem"](11), player.STUB_DEFAULT)
+        self.assertEqual(ns["AddItem"](11, 3, 5), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+
+    def test_garbage_arguments_never_reach_the_store(self):
+        store = _RecordingMintStore()
+        ns, calls = self._namespace(store=store)
+        for bad_item, bad_qty in ((True, 3), ("11", 3), (11, "3"),
+                                  (float("nan"), 3), (-1, 3), (11, -1)):
+            with self.subTest(item=bad_item, qty=bad_qty):
+                self.assertEqual(ns["AddItem"](bad_item, bad_qty),
+                                 player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("LUA_PLAYER_BAD_VALUE Player.AddItem" in line
+                            for line in calls), calls)
+
+    def test_no_session_on_the_context_refuses_before_the_store(self):
+        store = _RecordingMintStore()
+        ns, calls = self._namespace(sid="", store=store)
+        self.assertEqual(ns["AddItem"](11, 3), player.STUB_DEFAULT)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=no_session" in line for line in calls),
+                        calls)
+
+    def test_character_zero_is_the_inert_bucket_not_a_player(self):
+        store = _RecordingMintStore()
+        ns, calls = self._namespace(character_id=0, store=store)
+        ns["AddItem"](11, 3)
+        self.assertEqual(store.calls, [])
+        self.assertTrue(any("refused=no_character" in line for line in calls),
+                        calls)
 
 
 class SignedStatReachesARealRowTests(unittest.TestCase):

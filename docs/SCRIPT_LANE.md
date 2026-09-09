@@ -448,7 +448,7 @@ in `STILL_STUBBED`.
 | Party | PartySoul | 1 | stub |
 | Party | ShowMessage | 1 | stub |
 | Player | MobAppear | 3532 | real |
-| Player | AddItem | 1430 | stub |
+| Player | AddItem | 1430 | real |
 | Player | RemoveItem | 367 | stub |
 | Player | CheckItemNum | 211 | real |
 | Player | GetItemNum | 99 | real |

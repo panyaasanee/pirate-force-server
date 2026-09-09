@@ -657,7 +657,11 @@ class TheShippedScriptChargesARealRowTests(unittest.TestCase):
         """The other evidence layer, read on its own terms.
 
         The reader of this line is whoever has to decide to go and build
-        the missing half, so it names it: `Player.AddItem`.
+        the missing half, so it names it.  `Player.AddItem` was that name
+        until round `6gc0zk` (`store.mint_backpack_item` landed, see
+        `docs/SCRIPT_LANE.md`); the group -- five give-side members, not
+        one -- stayed shut, and the console now names the next one
+        alphabetically: `Player.AddPpClass`.
         """
         lines = self._run_report(CHARGE_QUEST_ID)
         refusals = [line for line in lines
@@ -671,7 +675,8 @@ class TheShippedScriptChargesARealRowTests(unittest.TestCase):
             "one line per member the run actually reached: the charge and "
             "the three curve payouts")
         for line in refusals:
-            self.assertIn("blocked_on=Player.AddItem,", line)
+            self.assertIn("blocked_on=Player.AddPpClass,", line)
+            self.assertNotIn("Player.AddItem", line.split("call_site=")[0])
             self.assertIn("call_site=Quest/q_class.lua:", line)
         self.assertFalse([line for line in lines
                           if line.startswith("LUA_QUEST_PAYOUT")],
@@ -681,9 +686,14 @@ class TheShippedScriptChargesARealRowTests(unittest.TestCase):
         """`if (Quest.RewardItem1 > 0)` must be false, and say why.
 
         The failure mode this test exists to catch is the quiet one: the
-        cells land, the branch fires, `Player.AddItem` logs `LUA_API_STUB`
-        and the item goes nowhere.  Under the gate the name refuses INSTEAD
-        of answering 2480010, and the log says which group is holding it.
+        cells land, the branch fires, and the item goes out anyway even
+        though the GROUP is still short a member.  Under the gate the name
+        refuses INSTEAD of answering 2480010, and the log says which group
+        is holding it.  `Player.AddItem` itself went real in round
+        `6gc0zk`; the group's other four give-side members did not, so the
+        assertion below now covers both worlds the closure could have
+        logged through (the old stub line, and the new real one) rather
+        than a line that can no longer appear.
         """
         lines = self._run_report(CHARGE_QUEST_ID)
         refusals = [line for line in lines
@@ -694,6 +704,11 @@ class TheShippedScriptChargesARealRowTests(unittest.TestCase):
                       refusals[0])
         self.assertNotIn("LUA_API_STUB Player.AddItem", lines,
                          "the give branch must not even be entered")
+        self.assertFalse(
+            [line for line in lines if line.startswith(
+                "LUA_PLAYER_MINT Player.AddItem")],
+            "the give branch must not even be entered, and that still "
+            "holds now that Player.AddItem is real: the group is not")
 
     def test_the_same_script_under_an_unbound_quest_still_charges_nothing(self):
         """The mutant that says this test is measuring the join, not luck.

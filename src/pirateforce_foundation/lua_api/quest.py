@@ -1005,7 +1005,7 @@ STILL_STUBBED: dict[str, str] = {
         "this round refuses it anyway rather than guess, see round file"
     ),
     "CountDownTime": "needs a per-character running quest timer; a fourth LANE-DB accessor not asked for this round (only flag/counter/daily-stamp were)",
-    "RewardItemSelect": "needs per-character reward-choice state plus a Player.AddItem grant this lane does not own yet",
+    "RewardItemSelect": "needs per-character reward-choice state (which of Quest.RewardItem1..N the player picked); Player.AddItem itself went real in round 6gc0zk (lua_api.reward.mint against store.mint_backpack_item), so the remaining blocker is the choice state, not a grant seam",
     "AddCriteriaExp": "needs a per-character EXP grant; Player.* item/exp/money queue item, not built yet",
     "AddCriteriaSkillPoint": "needs a per-character skill-point grant; Player.* queue item, not built yet",
     "AddCriteriaCash": "needs a per-character cash grant; Player.* queue item, not built yet",

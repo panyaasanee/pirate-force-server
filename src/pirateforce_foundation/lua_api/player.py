@@ -331,8 +331,8 @@ _EMPTY_BACKPACK = inventory.BackpackState(
     inventory.BACKPACK_RANGE_MASK, (),
 )
 
-#: The twelve names real so far. See the module docstring for why these
-#: eleven, and why every other Player.* name is not real yet.
+#: The thirteen names real so far. See the module docstring for why
+#: these, and why every other Player.* name is not real yet.
 REAL_METHODS = frozenset({
     "GetLv", "GetClass", "CheckItemNum", "GetItemNum", "CheckEquipItem",
     "MobAppear", "ShowMessage",
@@ -349,6 +349,10 @@ REAL_METHODS = frozenset({
     # The purse READ the four spending quests gate themselves on, real
     # from round `yzdgx1` (see :data:`STAT_READ_KINDS`).
     "GetCash",
+    # The first ITEM name, real this round now that store.mint_backpack_
+    # item exists (see lua_api.reward.mint and its own REFUSE_NO_ITEM_
+    # MINTER -- the two-way test COO-DECISION 20260909_1312 asked for).
+    "AddItem",
 })
 
 #: The API name -> reward kind map for the grant closures: which
@@ -629,6 +633,18 @@ class PlayerContext:
     on these defaults, the same seam
     ``lua_api.trigger.TriggerContext``/``lua_api.instance.InstanceContext``
     already established for their own namespaces.
+
+    ``sid`` (this round, ``AddItem`` going real) is the session id
+    ``store.mint_backpack_item`` needs to prove OWNERSHIP of the character
+    being minted into -- the same id every existing write door in this
+    codebase (``commit_acquired_backpack_item``, ``add_typed_attribute``'s
+    session-scoped siblings) already requires and that ``character_id``
+    alone cannot stand in for.  Defaults to ``""``, which is not a guess of
+    a real session: :func:`lua_api.reward.mint` refuses ``no_session``
+    for a falsy ``sid`` rather than forwarding it to a store that would
+    read it as "no such session".  A real per-session dispatcher supplies
+    the id the CONNECTION proved, the same seam ``TeleportCheck``'s own
+    ``character_id`` wiring note above describes for itself.
     """
 
     level: int = player_wire.PLAYER_LOGIN_LEVEL
@@ -636,6 +652,7 @@ class PlayerContext:
     backpack: "inventory.BackpackState" = _EMPTY_BACKPACK
     equipped_template_ids: frozenset = frozenset()
     character_id: int = 0
+    sid: str = ""
 
 
 #: The context a :class:`RealPlayerNamespace` gets when nothing more
@@ -684,11 +701,14 @@ _INSTANCE_ENTRY = (
 )
 STILL_STUBBED: dict[str, str] = {
     # item/equipment state (10) -- CheckItemNum/GetItemNum/CheckEquipItem
-    # (the read-only three) moved to REAL_METHODS this round; the rest
-    # still need a write seam (AddAndEquip/AddItem/RemoveItem/...) this
-    # lane does not own yet.
+    # (the read-only three) moved to REAL_METHODS in an earlier round;
+    # AddItem moved to REAL_METHODS this round now that
+    # store.mint_backpack_item exists (see lua_api.reward.mint).
+    # RemoveItem stays stubbed: the counter-value -> adapter -> RemoveItem
+    # plan stands (COO-DECISION 20260909_1452 point 3) but no subtracting
+    # door onto character_backpack_items exists yet -- a different door
+    # than mint_backpack_item, not built this round.
     "AddAndEquip": _ITEM_STATE,
-    "AddItem": _ITEM_STATE,
     "RemoveItem": _ITEM_STATE,
     "ItemAddon": _ITEM_STATE,
     "OpenStorage": _ITEM_STATE,
@@ -973,6 +993,40 @@ class RealPlayerNamespace:
                 return result
 
             return check_equip_item
+
+        if name == "AddItem":
+            def add_item(*args):
+                # Player.AddItem(item_id, quantity) -- arity 2 in the
+                # corpus itself (gamedata/PF_GAMEDATA_LUA_API.tsv, 1430
+                # call sites), so there is no third argument a script
+                # could hand this closure to name a category; category
+                # resolution is _reward.mint's job, from
+                # gm.item_catalog.item_category.
+                self.calls.append("Player.AddItem")
+                if len(args) != 2:
+                    _log_bad_arity(self._log, "AddItem", len(args), "2")
+                    return STUB_DEFAULT
+                item_id = _coerce_int(args[0], _MAX_TEMPLATE_ID)
+                quantity = _coerce_int(args[1], _MAX_QUANTITY)
+                if item_id is None or quantity is None:
+                    _log_bad_value(self._log, "AddItem",
+                                   item_id=args[0], quantity=args[1])
+                    return STUB_DEFAULT
+                _reward.mint(
+                    "Player.AddItem", self._context.character_id, item_id,
+                    quantity, sid=self._context.sid,
+                    store=self._payout_store, log=self._log)
+                # STUB_DEFAULT even on a minted row -- the same rule
+                # GRANT_KINDS's add_stat lives under (see its own comment):
+                # a mint is a SIDE EFFECT, nobody has measured what the
+                # game's own engine returns from this name, and every
+                # corpus call site uses it as a statement.  NO FRAME GOES
+                # OUT either: a client watching its bag will not see this
+                # item until whatever Player.*/Item* frame reports a
+                # backpack change is wired, which is not this round.
+                return STUB_DEFAULT
+
+            return add_item
 
         if name == "MobAppear":
             def mob_appear(*args):
