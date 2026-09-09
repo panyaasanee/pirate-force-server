@@ -935,6 +935,16 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "get_quest_flag",
             "increment_quest_counter",
             "persistence_quest_state",
+            # The SIXTH door, round `euskyd`: the (character, counter name)
+            # -> quest_id direction the five above cannot answer, asked for
+            # by `pf_bridge/notes_to_chief/20260908_1757_LANE-Q-TO-LANE-DB-
+            # one-more-door-which-quests-does-this-character-count-mobs-
+            # for.md` (a dead mob carries a template id, not a quest id).
+            # It reads the same table the five doors already exempted here
+            # write, adds no table and no migration, and rides the SAME
+            # unanswered CORE-REQUEST as the block above -- if chief
+            # answers "revert", this name goes with the rest of them.
+            "quest_counters_named",
             "quest_id",
             "set_quest_counter",
             "set_quest_flag",

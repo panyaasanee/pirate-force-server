@@ -42,6 +42,15 @@ from . import skill_learn_validator
 from .store import SQLiteStore
 
 
+#: The two refusals this module raises that do not come from
+#: `refusal_to_learn`, named rather than left to a caller reading the
+#: sentence.  Both are "nobody has ever written this", not "the answer is
+#: no": a caller that reports them as "you cannot afford it" would be
+#: telling the player something measured about a value nobody measured.
+REFUSED_BALANCE_NEVER_WRITTEN = "skill_point_balance_has_never_been_written"
+REFUSED_LEVEL_NEVER_ADJUDICATED = "character_level_has_never_been_adjudicated"
+
+
 def learn_skill_spend(
     store: SQLiteStore, character_id: int, skill_id: int
 ) -> int:
@@ -88,7 +97,8 @@ def learn_skill_spend(
         raise skill_learn_validator.SkillLearnValidatorError(
             "character %r has no skill_points value yet (NULL) -- cannot "
             "learn a skill against an unmeasured balance "
-            "(COO-DECISION 20260901_1059)" % (character_id,)
+            "(COO-DECISION 20260901_1059)" % (character_id,),
+            reason=REFUSED_BALANCE_NEVER_WRITTEN,
         )
     # THE LEVEL GATE, AND THE END OF THE EIGHT-ID CEILING (LANE-CS round
     # `jty60h`).  Until this round the only question asked here was "can she
@@ -119,7 +129,8 @@ def learn_skill_spend(
             "character %r has no adjudicated level yet -- cannot check a "
             "skill's n_LEVEL_LEARN against a level nobody wrote "
             "(COO-DECISION 20260901_1059, same rule as the NULL balance "
-            "above)" % (character_id,)
+            "above)" % (character_id,),
+            reason=REFUSED_LEVEL_NEVER_ADJUDICATED,
         )
     level = vitals.level
     after = skill_learn_validator.skill_points_after_learning_declared(

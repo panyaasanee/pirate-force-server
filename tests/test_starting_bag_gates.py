@@ -242,6 +242,172 @@ class StartingBagEntersTheWorldTests(unittest.TestCase):
                             relog.session_id, selected.id),
                     )
 
+    def test_the_slot2_move_derives_the_golden_it_used_to_compare_against(self):
+        """The V111_SLOT2_DESTINATION pin, on the set production holds today.
+
+        A derivation that does not reproduce the measured constant is a new
+        rule wearing the old one's name.  This is the whole of the evidence
+        that renaming the literal 2 changed nothing.
+        """
+        self.assertEqual(
+            inventory.hypothesized_v111_slot2_state(
+                inventory.MERGED_V111_BACKPACK),
+            inventory.HYPOTHESIZED_V111_SLOT2_BACKPACK,
+        )
+        self.assertEqual(
+            inventory.hypothesized_v111_slot2_states(),
+            (inventory.HYPOTHESIZED_V111_SLOT2_BACKPACK,),
+        )
+
+    def test_the_slot2_move_follows_the_set_from_inventory_alone(self):
+        """Gate 4 -- chief's R404, the half of CORE-REQUEST 0206 left here.
+
+        Same shape as the stack-merge test above and for the same reason: the
+        patch is on ``inventory`` ONLY.  ``store`` used to bind BOTH V111
+        goldens by value and compare its pre-state, its UPDATE literals and
+        its post-state against them, so a character born in any class but the
+        first merged successfully and then had the follow-up move rolled back
+        by its own post-state check, with no reply to the client.
+
+        NONCLAIM, and it is why the next test exists: the five bags in the
+        committed table differ ONLY at the right-hand weapon row (identity
+        4), so the identity-1 row the UPDATE names is the same in all five.
+        What THIS test measures red is the pre-state and post-state
+        comparisons, not the WHERE literals.
+        """
+        bags = tuple(
+            bag_holding_weapon(template) for template in CS_WEAPON_TEMPLATES
+        )
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", bags):
+            for index, (template, bag) in enumerate(
+                    zip(CS_WEAPON_TEMPLATES, bags)):
+                with self.subTest(weapon=template):
+                    session, character = self._create(f"slot2-{index}")
+                    self._move_the_weapon_row(character.id, template)
+                    relog = FoundationSession(
+                        self.lifecycle, self.projector, f"slot2-{index}")
+                    selected, _started = relog.select_and_start(
+                        character.selector)
+                    merged = self.lifecycle.store.apply_v111_stack_merge(
+                        relog.session_id, selected.id)
+                    self.assertEqual(merged, inventory.merged_v111_state(bag))
+
+                    after = (
+                        self.lifecycle.store
+                        .apply_hypothesized_v111_slot2_move(
+                            relog.session_id, selected.id)
+                    )
+
+                    self.assertEqual(
+                        after,
+                        inventory.hypothesized_v111_slot2_state(merged),
+                    )
+                    # The class keeps its own weapon across the move, and the
+                    # surviving stack is the row that moved.
+                    self.assertEqual(
+                        [row.template_id for row in after.items
+                         if row.identity == WEAPON_IDENTITY],
+                        [template],
+                    )
+                    self.assertEqual(
+                        [row.slot for row in after.items if row.identity == 1],
+                        [inventory.V111_SLOT2_DESTINATION],
+                    )
+                    # Idempotent: the moved bag is itself admitted by the
+                    # first door, so a repeat is a quiet None, not a raise.
+                    self.assertIsNone(
+                        self.lifecycle.store
+                        .apply_hypothesized_v111_slot2_move(
+                            relog.session_id, selected.id),
+                    )
+
+    def test_the_moved_row_is_found_by_the_bag_not_by_typed_literals(self):
+        """The UPDATE's WHERE clause, measured where the committed table cannot.
+
+        The old statement spelled ``template_id=2600001 AND quantity=2 AND
+        slot=0`` -- three values that are facts about ONE bag, derived from
+        ``INITIAL_BACKPACK`` and frozen.  The five ids in
+        ``creation_gear_by_class.tsv`` do not vary the identity-1 stack, so
+        no measurement over that table can tell a derived WHERE from a typed
+        one; this test installs a starting set that does vary it.
+
+        NONCLAIM: the bag below is NOT a class bag anyone has landed.  It is
+        the MECHANISM -- "the row named is the row the character holds" --
+        and it is the reason the fix is not carried by the five-class test
+        alone.  A merged stack of 6 also proves the frozen ``quantity=2`` was
+        a value and not a shape.
+        """
+        stacked = replace(
+            INITIAL_BACKPACK,
+            items=tuple(
+                replace(row, template_id=2600002, quantity=3)
+                if row.identity in (1, 3) else row
+                for row in INITIAL_BACKPACK.items
+            ),
+        )
+        self.assertNotEqual(stacked, INITIAL_BACKPACK)
+        with mock.patch.object(inventory, "STARTING_BACKPACKS", (stacked,)):
+            session, character = self._create("stacked")
+            with self.store.connect() as db:
+                changed = db.execute(
+                    "UPDATE character_backpack_items "
+                    "SET template_id=?, quantity=? "
+                    "WHERE character_id=? AND item_identity IN (1, 3)",
+                    (2600002, 3, character.id),
+                )
+                self.assertEqual(changed.rowcount, 2)
+            relog = FoundationSession(
+                self.lifecycle, self.projector, "stacked")
+            selected, _started = relog.select_and_start(character.selector)
+            self.assertEqual(relog.backpack, stacked)
+
+            merged = self.lifecycle.store.apply_v111_stack_merge(
+                relog.session_id, selected.id)
+            self.assertEqual(
+                [row.quantity for row in merged.items if row.identity == 1],
+                [6],
+            )
+
+            after = self.lifecycle.store.apply_hypothesized_v111_slot2_move(
+                relog.session_id, selected.id)
+
+            self.assertEqual(
+                after, inventory.hypothesized_v111_slot2_state(merged))
+            surviving = [row for row in after.items if row.identity == 1]
+            self.assertEqual(
+                [(row.template_id, row.quantity, row.slot)
+                 for row in surviving],
+                [(2600002, 6, inventory.V111_SLOT2_DESTINATION)],
+            )
+
+    def test_a_merged_bag_outside_the_set_is_still_refused_by_the_move(self):
+        """The control for the two tests above.
+
+        Widening the pre-state door to a SET is not opening it.  A bag that
+        is nobody's merged state is refused before any row is touched, and
+        the refusal is the same ``ValueError`` the constant comparison
+        raised, so callers upstream see no change of contract.
+        """
+        session, character = self._create("unmerged")
+        relog = FoundationSession(self.lifecycle, self.projector, "unmerged")
+        selected, _started = relog.select_and_start(character.selector)
+        # A freshly seated character holds a STARTING bag, which is nobody's
+        # merged state -- the move must refuse it.
+        self.assertNotIn(
+            relog.backpack, inventory.merged_v111_states())
+        with self.assertRaises(ValueError):
+            self.lifecycle.store.apply_hypothesized_v111_slot2_move(
+                relog.session_id, selected.id)
+        with self.store.connect() as db:
+            slots = [
+                row[0] for row in db.execute(
+                    "SELECT slot FROM character_backpack_items "
+                    "WHERE character_id=? AND item_identity=1",
+                    (selected.id,),
+                )
+            ]
+        self.assertEqual(slots, [0])
+
     def test_the_control_a_bag_outside_the_set_is_still_refused(self):
         """Without this the file would pass against a gate that admits all.
 

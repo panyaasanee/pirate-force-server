@@ -33,10 +33,30 @@ open question -- what the wire wstr does at the client -- is written down in
 the round file rather than papered over here.
 
 This module is that single rule.  It is deliberately import-free so that the
-roster generator (``tools/pf_mine_scene_mob_roster.py``, which is a
-standalone script and imports nothing from this package) can load it by path
-and mine under the very same function the server runs.  A second copy of the
-rule is the failure this module is here to prevent.
+roster generator (``tools/pf_mine_scene_mob_roster.py``, which imports
+nothing from this package) can load it by path and mine under the very same
+function the server runs.  A second copy of the rule is the failure this
+module is here to prevent.
+
+HOW WIDE "SINGLE" IS, MEASURED (round vavm4h, paying pf-adversary D9 of
+round db4o73, which caught the first draft calling this "the single
+dispenser" of the rule while the test behind that sentence skipped LANE-A's
+files BY NAME).  It is single FOR THIS LANE.  The same first-token reading
+is held in 15 other files -- LANE-A's ``world_bg*_identity.py`` tables, 26
+lines between them -- which this lane does not own and does not get to
+refactor.  Those are now COUNTED by
+``tests/test_mob_avatar_basename.py``: a sixteenth holder, or a change in
+any of the fifteen counts, turns that test red naming the file.  The claim
+this module is entitled to is therefore the narrow one: LANE-B reads a cell
+in one place, and every other reader in the tree is enumerated rather than
+excluded by a name pattern that cannot tell a new one from an old one.
+
+BOTH ENDS OF THE RULE REFUSE THE SAME THING (pf-adversary D10).  The gate
+below refuses a list cell reaching the wire.  Since round vavm4h the roster
+generator refuses the mirror case at the other end -- a cell whose first
+token is empty (``";X"``), which would have written a value into a generated
+table that this server's own boot path then rejects.  Neither end guesses:
+both name the row and stop.
 
 NON-CLAIMS.  It does not validate that the basename names a file that ships
 -- nothing on this side of the wire can.  It does not decide WHO is an enemy:

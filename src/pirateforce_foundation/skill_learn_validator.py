@@ -92,7 +92,22 @@ from . import skill_context_census
 
 
 class SkillLearnValidatorError(RuntimeError):
-    """Raised when `current_skill_points` is not a valid non-negative count."""
+    """Raised when a learn request cannot be adjudicated or afforded.
+
+    Carries an optional NAMED ``reason`` beside the human sentence.  The
+    sentence is a paragraph -- it interpolates ids, balances and levels --
+    and LANE-CS has already been burned once by a caller matching on
+    ``error.args[0]`` (round `ixbs2f`: a whole paragraph, spaces and all,
+    landed in a list another lane compares for equality).  ``reason`` is
+    the machine half: one of the ``REFUSED_*`` strings when the refusal
+    came from :func:`refusal_to_learn`, or one of the wiring layer's own
+    names, and ``None`` only for a raise site that has not been given one
+    yet -- never a sentence.
+    """
+
+    def __init__(self, *args, reason: "str | None" = None) -> None:
+        super().__init__(*args)
+        self.reason = reason
 
 
 def can_afford_to_learn(current_skill_points: int, skill_id: int) -> bool:
@@ -302,7 +317,8 @@ def skill_points_after_learning_declared(
     if refusal is not None:
         raise SkillLearnValidatorError(
             "cannot learn skill %r at level %r with %r skill points: %s"
-            % (skill_id, character_level, current_skill_points, refusal)
+            % (skill_id, character_level, current_skill_points, refusal),
+            reason=refusal,
         )
     cost = skill_context_census.rank_one_point_cost(skill_id)
     spend = cost if cost.is_integer() else math.ceil(cost)
