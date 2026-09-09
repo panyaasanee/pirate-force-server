@@ -10,6 +10,8 @@ agree with each other.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -627,6 +629,114 @@ class ThisLaneStaysInsideItsOwnZoneTests(unittest.TestCase):
                   / "skill_learn_roundtrip.py").read_text(encoding="utf-8")
         self.assertIn('if __name__ == "__main__":', source)
         self.assertIn("LEARN_SKILL_ROUND_TRIP", source)
+
+
+class TheConsoleEntryPointIsActuallyCalledTests(unittest.TestCase):
+    """pf-adversary round `mfgv4m`, D1: stubbing `main`'s whole body with
+    `return 0` still left `tests/test_skill_learn_roundtrip.py` at
+    22 passed -- the ticket this file exists for (a console line an
+    attended boot reads) had no test that ever RAN `main`, only one that
+    checked it was `callable`.  These tests call it, for real, against a
+    real file on disk, and read back what it printed and returned -- a
+    mutant that guts the body fails both.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.db_path = Path(self.tmp.name) / "cli_state.sqlite3"
+
+    def _make_character_on_disk(self):
+        """Populate the exact file `main` will later open by its `--db`
+        path, through the same `SQLiteStore` it uses internally -- setup
+        only, never imported by the module under test itself (see
+        `ThisLaneStaysInsideItsOwnZoneTests` above: `store` is reachable
+        from `main` only, and this class does not touch `main`'s AST)."""
+        store = SQLiteStore(self.db_path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("cliacct01")
+        store.open_session(account_id)
+        character = store.create_character(
+            account_id, "CliOne", "clione", "fp-cliacct01",
+            _build_wire, _HOME,
+        )
+        store.write_typed_attributes(
+            character.id, {"skill_points": 5, "level": 40},
+        )
+        return character.id
+
+    def test_a_real_run_prints_told_and_exits_zero(self):
+        character_id = self._make_character_on_disk()
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            exit_code = skill_learn_roundtrip.main([
+                "--character", str(character_id),
+                "--skill", str(_WHOLE_COST_SKILL_ID),
+                "--db", str(self.db_path),
+            ])
+        self.assertEqual(0, exit_code)
+        printed = buffer.getvalue().strip()
+        self.assertIn("LEARN_SKILL_ROUND_TRIP", printed)
+        self.assertIn("outcome=%s" % skill_learn_roundtrip.OUTCOME_LEARNED,
+                      printed)
+        self.assertIn("RESULT=TOLD", printed)
+        self.assertIn("records=1", printed)
+
+        # And the write really landed on the file `--db` named, not on some
+        # other database `main` fell back to.
+        store = SQLiteStore(self.db_path, MIGRATIONS)
+        self.assertIn(
+            _WHOLE_COST_SKILL_ID,
+            store.list_character_skills(character_id),
+        )
+
+    def test_a_real_run_that_cannot_afford_it_prints_not_told_and_exits_one(self):
+        character_id = self._make_character_on_disk()
+        store = SQLiteStore(self.db_path, MIGRATIONS)
+        store.write_typed_attributes(character_id, {"skill_points": 0})
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            exit_code = skill_learn_roundtrip.main([
+                "--character", str(character_id),
+                "--skill", str(_WHOLE_COST_SKILL_ID),
+                "--db", str(self.db_path),
+            ])
+        self.assertEqual(1, exit_code)
+        printed = buffer.getvalue().strip()
+        self.assertIn("RESULT=NOT_TOLD", printed)
+
+    def test_a_db_path_that_does_not_exist_yet_is_migrated_not_lied_about(self):
+        """The exact shape pf-adversary measured: `--db` naming a path with
+        nothing at it.  Before the D1 fix this printed the specific-
+        sounding `reason=skill_point_balance_has_never_been_written` for a
+        database that had no `characters` table at all, and left a bare
+        4096-byte file behind.  After it, the same run still refuses (there
+        is no such character), but through a database that was actually
+        migrated -- proven here by connecting to the path `main` was given
+        and finding the real schema, not just an empty file."""
+        fresh_path = Path(self.tmp.name) / "never_touched.sqlite3"
+        self.assertFalse(fresh_path.exists())
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            exit_code = skill_learn_roundtrip.main([
+                "--character", "1",
+                "--skill", str(_WHOLE_COST_SKILL_ID),
+                "--db", str(fresh_path),
+            ])
+        self.assertEqual(1, exit_code)
+        self.assertIn("RESULT=NOT_TOLD", buffer.getvalue())
+        self.assertTrue(fresh_path.exists())
+        # Migrated, not merely created: a store opened read-only against
+        # this exact path can list characters (the table exists) and finds
+        # none, rather than raising "no such table".
+        store = SQLiteStore(fresh_path, MIGRATIONS)
+        with store.connect() as db:
+            names = {
+                str(row[0]) for row in
+                db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+        self.assertIn("characters", names)
+        self.assertIn("schema_migrations", names)
 
     def test_it_carries_no_scenario_flag_a_boot_could_switch_off(self):
         self.assertIs(True, skill_learn_roundtrip.production_allowed)

@@ -407,6 +407,19 @@ def main(argv: "list[str] | None" = None) -> int:
     if database is None:
         database = Path(root) / DEFAULT_DB_RELATIVE_PATH
     store = SQLiteStore(database, Path(root) / "migrations")
+    # pf-adversary round `mfgv4m`, D1: without this call, a `--db` path that
+    # does not exist yet is silently handed to sqlite3 (which creates an
+    # empty FILE, no tables) and every read below then raises, is swallowed
+    # by `_balance_or_none`/`_skills_or_none`, and comes out the far end as
+    # the named refusal `REFUSE_BALANCE_UNMEASURED` -- a real, specific-
+    # sounding reason for what is actually "this database was never
+    # migrated".  `migrate()` is the same call the test fixture in `tests/
+    # test_skill_learn_roundtrip.py` makes before touching a store, and it
+    # is a no-op against an already-migrated database (nothing left to
+    # apply), so this does not change behaviour against the live server's
+    # own database (`app.py` migrates it at boot) -- it only stops this
+    # entry point from lying about a database nobody has migrated yet.
+    store.migrate()
     legacy = load_legacy(Path(root) / "current" / "pf_login_game_server_v141.py")
     result = learn_skill_round_trip(legacy, store, args.character, args.skill)
     _print_console_line(headless_token(result))
