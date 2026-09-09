@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,8 +183,30 @@ class TheThirdAdmissionArm(unittest.TestCase):
             scene_id for scene_id in self.registry.ids
             if admitted_by_the_underlying_facts_alone(scene_id)
         )
+        # ONE KNOWN DIFFERENCE, NAMED, AND NOT A LICENCE FOR A SECOND.
+        # LANE-GM retired scene 126's sanction in their round `xbfcsi`
+        # (`COO-DECISION 20260908_2141`), so 126 stopped being "governed by
+        # the GM lane" and now satisfies all three facts above -- while
+        # `ARM_THREE_ELIGIBLE_SCENE_IDS`, which is this lane's own src and
+        # not the GM lane's to edit, still omits it.  The retirement did not
+        # change what arm three DOES (the allowlist gates it first), so no
+        # behaviour moved; what moved is which lane owns the next decision,
+        # and that decision is lane A's: either 126 joins the allowlist and
+        # the census rides arm three until the login door lands, or it stays
+        # out and 126's census is dark until then.  Asked in
+        # `notes_to_chief/20260909_*_LANE-GM-TO-LANE-A-126-unsanctioned-arm-
+        # three-eligibility.md`; a measurement, not a bill.
+        #
+        # Every OTHER scene is still compared exactly, so a forgotten
+        # SAME_ROUND registration still turns this red.
+        allowlisted = sorted(lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS)
+        self.assertNotIn(
+            ATLANTIS, allowlisted,
+            "lane A added 126 to ARM_THREE_ELIGIBLE_SCENE_IDS: delete the "
+            "exception below and compare the two lists directly again",
+        )
         self.assertEqual(
-            fact_admitted, sorted(lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS),
+            fact_admitted, sorted(set(allowlisted) | {ATLANTIS}),
             "a scene satisfies decree + live warp + not-sanctioned but is "
             "missing from ARM_THREE_ELIGIBLE_SCENE_IDS (or the reverse): "
             "the allowlist and the facts it was built from have drifted",
@@ -199,7 +222,22 @@ class TheThirdAdmissionArm(unittest.TestCase):
         arm asks FIRST whether the GM lane governs the scene and declines if
         it does.  Driven by revoking the sanction, not by reading the source.
         """
+        from types import MappingProxyType
+
         from pirateforce_foundation.gm import login_scene_admission
+
+        # THE SANCTION IS STOOD UP RATHER THAN READ.  126's row was retired
+        # in LANE-GM round `xbfcsi`, so the shipped map governs nothing and
+        # this case -- which is about the ARM's rule, not about 126 -- would
+        # otherwise assert that a scene the GM lane does NOT govern is
+        # declined for some other reason entirely.
+        patcher = mock.patch.object(
+            login_scene_admission,
+            "SANCTIONED_BARRED_SCENES",
+            MappingProxyType({ATLANTIS: "CHIEF-DECISION 20260829_1603 item 2"}),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.assertIn(
             ATLANTIS, login_scene_admission.SANCTIONED_BARRED_SCENES)
         # Both halves of this arm's own test match scene 126 ...

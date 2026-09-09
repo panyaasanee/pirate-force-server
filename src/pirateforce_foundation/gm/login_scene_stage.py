@@ -167,11 +167,14 @@ REASON_EXISTING_ENTRY_NOT_ADMISSIBLE = "existing_entry_not_admissible"
 #
 # A scene lands here when a chief letter has sanctioned it as a GM warp
 # destination (`login_scene_admission.SANCTIONED_BARRED_SCENES`) while the
-# route to it is still incomplete.  Today that is scene 126, sanctioned by
-# CHIEF-DECISION 20260829_1603 item 2, whose other half (lane A's registry
-# row) had not landed when this was written and whose login-path half
-# (`via_login=False` at runtime.py's GM-gated override branch) is
-# CORE-REQUEST-GM-038, still open.
+# route to it is still incomplete.  ~~Today that is scene 126, sanctioned by
+# CHIEF-DECISION 20260829_1603 item 2.~~  NO SCENE IS SANCTIONED TODAY: 126's
+# row was retired in LANE-GM round `xbfcsi` on the order of
+# `COO-DECISION 20260908_2141`, so this refusal is currently unreachable on
+# main and is kept for the next letter rather than deleted.  The half that
+# made 126's route incomplete is unchanged -- CORE-REQUEST-GM-038
+# (`via_login=False` at runtime.py's GM-gated override branch) is still
+# open.
 #
 # WHY THIS IS NOT JUST ADMITTING 126.  The letter asks this lane to "add 126
 # to the set /warp accepts".  Measured on main, admitting it would write a

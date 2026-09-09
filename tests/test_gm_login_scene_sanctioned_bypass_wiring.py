@@ -37,6 +37,7 @@ import json
 import sys
 import tempfile
 import unittest
+from types import MappingProxyType
 from pathlib import Path
 from unittest import mock
 
@@ -91,6 +92,21 @@ def _registry_with_sanctioned_row():
 
 class SanctionedBypassWiringTests(unittest.TestCase):
     def setUp(self):
+        # THE SANCTION IS STOOD UP, NOT READ.  Scene 126's row was retired
+        # from `SANCTIONED_BARRED_SCENES` in LANE-GM round `xbfcsi`
+        # (`COO-DECISION 20260908_2141`), and what this file pins is the
+        # WIRING that `CORE-REQUEST-GM-038` landed in `runtime.py` -- which
+        # scene ids a consumed, gated grant may log in with -- not which
+        # scene a chief letter happens to name.  Without a sanction every
+        # case here would take the ordinary refusal and pass without ever
+        # reaching the branch it was written for.
+        patcher = mock.patch.object(
+            login_scene_admission,
+            "SANCTIONED_BARRED_SCENES",
+            MappingProxyType({SANCTIONED: "CHIEF-DECISION 20260829_1603 item 2"}),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = SQLiteStore(

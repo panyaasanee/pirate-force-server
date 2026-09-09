@@ -35,15 +35,20 @@ account starts in this one scene, consumed on use.
 named this lane's own file as the place, so there is no CORE-REQUEST to wait
 on: everything below is inside `gm/`.
 
-WHAT MAKES 126 THE ONLY SCENE ON THIS ROAD, and why there is no `126` written
-anywhere in the code below.  The route opens only for a scene that is BOTH
-refused by the login path AND named by a chief letter in
-`login_scene_admission.SANCTIONED_BARRED_SCENES`, which today holds exactly
-one id.  A scene that is merely refused gets the refusal it always got, with
-no entry written and no line printed beyond `persist_warp_scene`'s own.  When
-a future letter sanctions a second scene, this route follows the letter
-rather than a constant somebody has to remember to edit --
-`test_gm_warp_relog_stage.py` pins the "exactly one today" reading so that
+WHAT MAKES A SCENE ELIGIBLE FOR THIS ROAD, and why there is no `126`
+written anywhere in the code below.  The route opens only for a scene that is
+BOTH refused by the login path AND named by a chief letter in
+`login_scene_admission.SANCTIONED_BARRED_SCENES` -- ~~which today holds
+exactly one id~~ WHICH IS EMPTY ON MAIN TODAY: scene 126's row was retired in
+LANE-GM round `xbfcsi` (`COO-DECISION 20260908_2141`), so this road is open
+for NOBODY until a letter names a scene again, or until lane A's login row
+for 126 lands and makes the road unnecessary for it.  A scene that is merely
+refused gets the refusal it always got, with no entry written and no line
+printed beyond `persist_warp_scene`'s own -- except for a scene lane A
+decreed an arrival for, which is announced rather than swallowed, because a
+character really was moved there.  When a future letter sanctions a scene,
+this route follows the letter rather than a constant somebody has to remember
+to edit -- `test_gm_warp_relog_stage.py` pins the map's contents so that
 widening the map is a decision somebody makes on purpose.
 
 FAIL-CLOSED, AND NOT BY THIS MODULE'S OWN GOOD BEHAVIOUR.  The write itself
