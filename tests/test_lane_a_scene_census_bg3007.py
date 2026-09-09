@@ -183,27 +183,33 @@ class TheThirdAdmissionArm(unittest.TestCase):
             scene_id for scene_id in self.registry.ids
             if admitted_by_the_underlying_facts_alone(scene_id)
         )
-        # ONE KNOWN DIFFERENCE, NAMED, AND NOT A LICENCE FOR A SECOND.
+        # ONE PERMANENT DIFFERENCE, NAMED, AND NOT A LICENCE FOR A SECOND.
         # LANE-GM retired scene 126's sanction in their round `xbfcsi`
         # (`COO-DECISION 20260908_2141`), so 126 stopped being "governed by
-        # the GM lane" and now satisfies all three facts above -- while
-        # `ARM_THREE_ELIGIBLE_SCENE_IDS`, which is this lane's own src and
-        # not the GM lane's to edit, still omits it.  The retirement did not
-        # change what arm three DOES (the allowlist gates it first), so no
-        # behaviour moved; what moved is which lane owns the next decision,
-        # and that decision is lane A's: either 126 joins the allowlist and
-        # the census rides arm three until the login door lands, or it stays
-        # out and 126's census is dark until then.  Asked in
+        # the GM lane" and now satisfies all three facts this test derives.
+        # `ARM_THREE_ELIGIBLE_SCENE_IDS` still omits it -- and that is not an
+        # oversight waiting for a decision: the allowlist EXISTS because
+        # pf-adversary measured, in round `dyi95m`, that retiring the GM
+        # row would otherwise reopen 126 through this arm, and its own
+        # comment rules that "scene 126 is deliberately NOT here: it is the
+        # second arm's scene, permanently, regardless of what
+        # SANCTIONED_BARRED_SCENES says on any given round".  This round is
+        # the event that rule was written for, and the rule holds.
+        #
+        # So the difference is asserted as a constant of the design, not as
+        # drift: behaviour did not move (the allowlist gates before the
+        # facts), and every OTHER scene is still compared exactly, so a
+        # forgotten SAME_ROUND registration still turns this red.  The
+        # consequence -- 126's census is dark until lane A's login door
+        # lands and arm ONE covers it -- is reported to that lane in
         # `notes_to_chief/20260909_*_LANE-GM-TO-LANE-A-126-unsanctioned-arm-
         # three-eligibility.md`; a measurement, not a bill.
-        #
-        # Every OTHER scene is still compared exactly, so a forgotten
-        # SAME_ROUND registration still turns this red.
         allowlisted = sorted(lane_a.ARM_THREE_ELIGIBLE_SCENE_IDS)
         self.assertNotIn(
             ATLANTIS, allowlisted,
-            "lane A added 126 to ARM_THREE_ELIGIBLE_SCENE_IDS: delete the "
-            "exception below and compare the two lists directly again",
+            "lane A put 126 into ARM_THREE_ELIGIBLE_SCENE_IDS, reversing the "
+            "rule that tuple was created to hold: delete the exception below "
+            "and compare the two lists directly again",
         )
         self.assertEqual(
             fact_admitted, sorted(set(allowlisted) | {ATLANTIS}),

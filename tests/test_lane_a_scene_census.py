@@ -560,16 +560,16 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
 
 
 class ComposerContractTests(unittest.TestCase):
-
-    def setUp(self):
-        super().setUp()
-        _install_the_gm_sanction(self)
     """What the composer returns once a scene IS open.
 
     The registry is opened in a temp file and handed to the composer as
     ``scene_entry_registry`` - the same argument runtime.py passes - so
     nothing here monkeypatches a loader or touches the repository's file.
     """
+
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction(self)
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -2071,10 +2071,6 @@ class DeepSeaTempleFloor2RegistrationTests(unittest.TestCase):
 
 
 class TheSecondAdmissionArmTests(unittest.TestCase):
-
-    def setUp(self):
-        super().setUp()
-        _install_the_gm_sanction(self)
     """Scene 126: what admits it, what it cannot do, and how it fails.
 
     THE PROPERTY THIS CLASS EXISTS FOR.  Round `4uztfj` added a second
@@ -2085,6 +2081,10 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
     admits NO other scene, and it fails closed when the predicate it asks
     cannot answer.
     """
+
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction(self)
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -2244,11 +2244,11 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
 
 
 class AtlantisRegistrationTests(unittest.TestCase):
+    """The ocean panel's census, composed through the registered composer."""
 
     def setUp(self):
         super().setUp()
         _install_the_gm_sanction(self)
-    """The ocean panel's census, composed through the registered composer."""
 
     @classmethod
     def setUpClass(cls) -> None:

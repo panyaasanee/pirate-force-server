@@ -18,10 +18,16 @@ opens every login door.  That is true ON LANE-A'S BRANCH: the change is
 `pirate-force-server#1137`, which is open, DRAFT and `dirty` at the time of
 this measurement, so on main today `login_scene_admission.login_entry_is_pinned(126)`
 is still False and `sanctioned_barred_blocker(126)` still returns a real
-blocker.  The route below is live.  The day `#1137` lands it goes dormant
-and the sanction retires with it, which is a decision with a cost measured
-by lane A (25 cases in 5 files) rather than a line to delete -- see
-`notes_to_chief/20260908_1805_LANE-GM-TO-LANE-A-...`.  Opening that door to
+blocker.  ~~The route below is live.  The day `#1137` lands it goes dormant
+and the sanction retires with it~~ -- STRUCK, LANE-GM round `xbfcsi`: THE
+SANCTION WENT FIRST, and the order in that sentence is what
+`COO-DECISION 20260908_2141` had to invert.  126's row was retired while the
+door was still shut, because the branch that opens it cannot merge while this
+lane's tripwire is red on it.  So the route below is DORMANT on main today
+with no scene to serve, not live; the cost lane A measured (25 cases in 5
+files) was paid in that round rather than deferred -- see
+`notes_to_chief/20260908_1805_LANE-GM-TO-LANE-A-...` and the two `2141`
+letters that replaced its ordering.  Opening that door to
 buy the relog would trade a measured policy for a convenience, which is the
 trade `1444` already refused once.
 

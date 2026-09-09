@@ -184,13 +184,30 @@ from .scene_catalog import is_known_scene_id
 #     sanctioned_barred_blocker(126)    -> login_path_bars_it_needs_core_request_gm_038
 #     single_use_stageable_scene_ids()  -> (..., 126, ...)  # only via this row
 #
-# So on main, and only until lane A's login row lands, ``/warp 126`` keeps
-# working live (``PANYA 1329`` -- the live warp reads lane A's decreed
-# arrival, never this map) and STOPS being staged for the next login
-# (``PANYA 1430`` -- ``warp_relog_stage`` answers ``scene_not_sanctioned``).
-# That window closes by itself the moment lane A's row reaches main: arm 1
-# of the census covers 126 then, with no sanction needed.  Nobody has to
-# come back and undo anything.
+# So on main, and only until lane A's login row lands, THREE things are true
+# and the third one is the expensive one:
+#
+#   1. ``/warp 126`` keeps working live (``PANYA 1329`` -- the live warp
+#      reads lane A's decreed arrival, never this map).
+#   2. It STOPS being staged for the next login (``PANYA 1430`` --
+#      ``warp_relog_stage`` answers ``scene_not_sanctioned``, out loud).
+#   3. THE CENSUS FOR 126 GOES DARK.  Its roster rode lane A's SECOND
+#      admission arm, and that arm asks this map
+#      (``lane_a_scene_census.scene_is_sanctioned_for_a_gm_entry``), so
+#      ``scene_may_be_populated(126)`` flips True -> False and a GM who warps
+#      there arrives in an empty ocean where 37 actors used to be.  Arm three
+#      does NOT pick it up: lane A's own ``ARM_THREE_ELIGIBLE_SCENE_IDS``
+#      excludes 126 deliberately and permanently ("it is the second arm's
+#      scene ... regardless of what SANCTIONED_BARRED_SCENES says on any
+#      given round"), which is that lane's answer to this exact retirement.
+#
+# The window closes when lane A's login row reaches main: arm 1 of the census
+# covers 126 then, with no sanction needed.  ~~Nobody has to come back and
+# undo anything.~~ ONE THING DOES have to be undone, and it is pinned so that
+# nobody has to remember: ``SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR`` in
+# ``tests/test_gm_warp_chain_census_shipped.py`` names 126 today, and the
+# drift check there goes RED on the day the census comes back, which is the
+# day that tuple must be emptied.
 #
 # HOW A NEW ENTRY IS BORN, kept here because the map being empty is the one
 # state in which the recipe is easy to lose: add ``<scene_id>: "<the letter
