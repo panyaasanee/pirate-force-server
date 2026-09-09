@@ -2909,6 +2909,15 @@ class AdoptRoundLy40b5AdversaryTests(_RegistryIsolation):
         self.addCleanup(path.unlink, missing_ok=True)
         qualified = f"{lane_hooks.__name__}.{stem}"
         self.addCleanup(sys.modules.pop, qualified, None)
+        # FileFinder caches a package directory's listing keyed on the
+        # directory's mtime.  Two files written back to back in this
+        # method can land inside one mtime tick (worst on Windows, whose
+        # filesystem timestamp resolution is coarser than Linux's), so
+        # the second import can raise ModuleNotFoundError against a file
+        # that is actually on disk -- measured on the real gate (windows
+        # gate run 34330205902, round t4nxwq): the owner import
+        # succeeded, the very next thief import did not.
+        importlib.invalidate_caches()
         module = importlib.import_module(qualified)
         lane_hooks._PRODUCTION_ALLOWED[qualified] = bool(allowed)
         self.addCleanup(
