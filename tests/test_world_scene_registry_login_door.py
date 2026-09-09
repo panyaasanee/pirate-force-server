@@ -485,6 +485,307 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                              entry.position.z),
                             destination.spawn)
 
+    def test_home_is_inside_the_not_a_place_rule_and_not_outside_it(self):
+        """pf-adversary D5 of round ``sbqohw``, MEASURED here before it was
+        fixed: the home arm of ``resolve_entry`` returned the row verbatim
+        BEFORE the finite check ran, so scene 1 - the scene every character
+        reaches by default and the only scene any character in this project
+        has ever been persisted in - was the one destination the check did
+        not cover.
+
+        The case above walks every openable scene EXCEPT home and says so in
+        its own filter (``d.n_id != HOME_SCENE_ID``), which is why it could
+        not catch this.  This one drives home and nothing else.
+
+        "Home keeps the row byte for byte" is a statement about WHICH
+        POSITION is chosen among real places.  It was never a licence to put
+        bytes the encoder refuses onto the wire, and reading it as one is
+        what left this hole open.
+        """
+        home = world_scene_travel.destination(
+            world_scene_entry.HOME_SCENE_ID, self.registry)
+        self.assertIsNotNone(
+            home.spawn,
+            "home has no pinned spawn, so this case cannot say where a "
+            "refused row should land instead")
+        bad = (
+            (float("inf"), 0.0, 0.0),
+            (float("nan"), 0.0, 0.0),
+            (0.0, float("-inf"), 0.0),
+            (0.0, 0.0, float("nan")),
+        )
+        for x, y, z in bad:
+            for via_login in (True, False):
+                with self.subTest(xyz=(x, y, z), via_login=via_login):
+                    entry = world_scene_entry.resolve_entry(
+                        Position(home.n_id, 0, x, y, z),
+                        registry=self.registry,
+                        emit=lambda line: None,
+                        via_login=via_login,
+                    )
+                    self.assertTrue(entry.relocated)
+                    self.assertEqual(
+                        entry.relocation_reason,
+                        world_scene_entry.RELOCATED_ROW_NOT_FINITE)
+                    self.assertEqual(
+                        (entry.position.x, entry.position.y, entry.position.z),
+                        home.spawn)
+
+    def test_a_row_the_float32_encoder_would_refuse_is_not_a_place(self):
+        """pf-adversary D6 of round ``sbqohw``: being a number is not enough.
+
+        ``3.5e38`` is finite - ``math.isfinite`` says yes - and it is OUTSIDE
+        float32, so ``struct.pack("<f", ...)`` raises ``OverflowError`` in
+        the encoder that puts this row on the wire.  ``OverflowError``
+        subclasses ``ArithmeticError``, which none of the handlers guarding
+        the login composers catches, so the thread unwinds; and the row is
+        durable, so the next login does it again.
+
+        Driven over home AND every openable destination, on both
+        ``via_login`` paths, because the arm that answers this is gated on
+        neither.
+        """
+        openable = [
+            d for d in self.registry.destinations
+            if d.spawn is not None
+            and (d.login_entry_allowed
+                 or d.n_id == world_scene_entry.HOME_SCENE_ID)
+        ]
+        self.assertGreater(len(openable), 1)
+        too_big = 3.5e38
+        bad = (
+            (too_big, 0.0, 0.0),
+            (-too_big, 0.0, 0.0),
+            (0.0, too_big, 0.0),
+            (0.0, 0.0, too_big),
+        )
+        for destination in openable:
+            for x, y, z in bad:
+                for via_login in (True, False):
+                    with self.subTest(scene=destination.n_id, xyz=(x, y, z),
+                                      via_login=via_login):
+                        entry = world_scene_entry.resolve_entry(
+                            Position(destination.n_id, 0, x, y, z),
+                            registry=self.registry,
+                            emit=lambda line: None,
+                            via_login=via_login,
+                        )
+                        self.assertTrue(entry.relocated)
+                        self.assertEqual(
+                            entry.relocation_reason,
+                            world_scene_entry.RELOCATED_ROW_OUTSIDE_FLOAT32)
+                        self.assertEqual(
+                            (entry.position.x, entry.position.y,
+                             entry.position.z),
+                            destination.spawn)
+
+    def test_every_arrival_this_module_returns_packs_as_a_float32(self):
+        """The two cases above name the two holes; this one states the
+        PROPERTY they are holes in, so a third hole nobody has thought of
+        turns it red without anyone remembering to add a value here.
+
+        Asserted against ``struct.pack`` itself - the call that actually
+        raises in the encoder - rather than against a range constant this
+        file could get wrong in the same direction the code got it wrong.
+        """
+        import struct
+        rows = (
+            (0.0, 0.0, 0.0),
+            (float("nan"), float("nan"), float("nan")),
+            (float("inf"), float("-inf"), 0.0),
+            (3.5e38, -3.5e38, 3.5e38),
+            (1e308, 0.0, 0.0),
+        )
+        openable = [
+            d for d in self.registry.destinations if d.spawn is not None
+        ]
+        for destination in openable:
+            for x, y, z in rows:
+                for heading in (0.0, float("nan"), 3.5e38, float("-inf")):
+                    with self.subTest(scene=destination.n_id, xyz=(x, y, z),
+                                      heading=heading):
+                        entry = world_scene_entry.resolve_entry(
+                            Position(destination.n_id, 0, x, y, z, heading),
+                            registry=self.registry,
+                            emit=lambda line: None,
+                            via_login=True,
+                        )
+                        for value in (entry.position.x, entry.position.y,
+                                      entry.position.z,
+                                      entry.position.heading):
+                            struct.pack("<f", value)
+
+    def test_a_heading_the_encoder_refuses_is_replaced_and_reported(self):
+        """The heading rides the same encoder as the coordinates.
+
+        ``_row_is_finite`` says in its own docstring that heading is left
+        alone because a wrong heading is corrected by the next client report.
+        That is true of a WRONG heading and false of one the encoder cannot
+        carry: NaN and ``3.5e38`` unwind the same thread, and the relocation
+        arms handed ``row.heading`` straight back to ``entry_position``.
+
+        Replaced rather than relocated - the character still lands where the
+        rules put them - and the replacement is REPORTED, because a silent
+        rewrite is what this module spent three rounds removing.
+        """
+        home = world_scene_travel.destination(
+            world_scene_entry.HOME_SCENE_ID, self.registry)
+        spawn = _spawn_position(home)
+        for heading in (float("nan"), float("inf"), 3.5e38, -3.5e38):
+            with self.subTest(heading=heading):
+                lines = []
+                entry = world_scene_entry.resolve_entry(
+                    Position(spawn.scene_id, spawn.scene_seq,
+                             spawn.x, spawn.y, spawn.z, heading),
+                    registry=self.registry,
+                    emit=lines.append,
+                    via_login=True,
+                )
+                self.assertEqual(entry.position.heading, 0.0)
+                self.assertTrue(
+                    any(line.startswith("SCENE_ENTRY_HEADING_REPLACED")
+                        for line in lines),
+                    "the heading was rewritten and the console did not say "
+                    "so: %r" % (lines,))
+        # And a heading the encoder CAN carry is untouched and unreported,
+        # or this case would pass on a module that replaced every heading.
+        lines = []
+        entry = world_scene_entry.resolve_entry(
+            Position(spawn.scene_id, spawn.scene_seq,
+                     spawn.x, spawn.y, spawn.z, 1.75),
+            registry=self.registry,
+            emit=lines.append,
+            via_login=True,
+        )
+        self.assertEqual(entry.position.heading, 1.75)
+        self.assertFalse(
+            any(line.startswith("SCENE_ENTRY_HEADING_REPLACED")
+                for line in lines))
+
+    def test_the_measured_envelope_is_pinned_from_BOTH_sides(self):
+        """pf-adversary D7 of round ``sbqohw``, MEASURED: the envelope in
+        ``_measured_envelope_refutes`` could be widened ~550x and the whole
+        suite stayed green.  Every case that touched it drove a row far
+        outside the box, so only the LOWER bound of the envelope was pinned;
+        nothing said how generous it is allowed to be.
+
+        The doubling (``extent`` - a full box width - used as a RADIUS) is a
+        CHOICE and the module says so.  A choice nothing measures is a
+        choice the next round can change by accident, so this case pins it
+        from both sides at once: one row just inside the envelope must be
+        kept, one row just outside it must be thrown away.  Widening turns
+        the second red; tightening turns the first red.
+
+        Derived from the registry's own ground block, not from literals, so
+        a round that re-measures a scene does not have to remember this file
+        - only a round that changes the RULE does, which is the point.
+        """
+        with_ground = [
+            d for d in self.registry.destinations
+            if d.ground_extent is not None and d.ground_box is not None
+            and d.login_entry_allowed
+        ]
+        self.assertTrue(
+            with_ground,
+            "no destination carries a measured ground box any more, so this "
+            "case would pass without measuring the envelope at all")
+        for destination in with_ground:
+            x_min, x_max, y_min, y_max = destination.ground_box
+            extent_x, extent_y = destination.ground_extent
+            # THE TWO ENVELOPES ARE CENTRED ON DIFFERENT POINTS AND THIS
+            # CASE MUST NOT CONFLATE THEM (it did on its first run, and
+            # scene 278 said so): `_ground_evidence` centres the radius on
+            # the pinned SPAWN, and `_measured_envelope_refutes` - the arm
+            # for a scene whose spawn is a PROVISIONAL-OWNER-DECREE, where
+            # that spawn is not a measured point to centre anything on -
+            # centres it on the BOX.  Same radius, different centre.
+            decreed = (
+                destination.spawn_provenance is not None
+                and destination.spawn_provenance.startswith(
+                    "PROVISIONAL-OWNER-DECREE")
+            )
+            if decreed:
+                centre_x = (x_min + x_max) / 2.0
+                centre_y = (y_min + y_max) / 2.0
+            else:
+                centre_x, centre_y, _z = destination.spawn
+            margin = 1.0
+            _, scene_seq = world_scene_travel.entry_fields(destination)
+            inside = Position(
+                destination.n_id, scene_seq,
+                centre_x + extent_x - margin, centre_y, 0.0)
+            outside = Position(
+                destination.n_id, scene_seq,
+                centre_x + extent_x + margin, centre_y, 0.0)
+            with self.subTest(scene=destination.n_id, side="inside"):
+                entry = world_scene_entry.resolve_entry(
+                    inside, registry=self.registry,
+                    emit=lambda line: None, via_login=True)
+                self.assertFalse(
+                    entry.relocated,
+                    "a row %.3f units from the box centre, inside the "
+                    "envelope this module declares, was thrown away - the "
+                    "envelope has been TIGHTENED" % (extent_x - margin,))
+            with self.subTest(scene=destination.n_id, side="outside"):
+                entry = world_scene_entry.resolve_entry(
+                    outside, registry=self.registry,
+                    emit=lambda line: None, via_login=True)
+                self.assertTrue(
+                    entry.relocated,
+                    "a row %.3f units from the box centre, OUTSIDE the "
+                    "envelope this module declares, was kept - the envelope "
+                    "has been WIDENED, which is the direction nothing in "
+                    "this suite used to measure" % (extent_x + margin,))
+            with self.subTest(scene=destination.n_id, side="y"):
+                self.assertTrue(
+                    world_scene_entry.resolve_entry(
+                        Position(destination.n_id, scene_seq,
+                                 centre_x, centre_y + extent_y + margin, 0.0),
+                        registry=self.registry,
+                        emit=lambda line: None, via_login=True).relocated,
+                    "the y half of the envelope is not pinned from above")
+
+    def test_a_kept_row_carries_the_destinations_scene_seq_not_the_rows(self):
+        """pf-adversary D8 of round ``sbqohw``: the kept arms build their
+        ``Position`` with ``scene_seq`` from ``entry_fields(target)`` and
+        nothing anywhere asserted it, so a mutant that handed back
+        ``row.scene_seq`` survived the suite.  ``scene_seq`` goes on the
+        wire beside the scene id; a kept row that carries the sequence it
+        happened to be stored with is a row in a frame that is not this
+        scene's.
+
+        Driven with a row whose stored ``scene_seq`` is deliberately WRONG,
+        on the arm that keeps the coordinates, so the assertion is about the
+        frame and not about the position.
+        """
+        kept_any = False
+        for destination in self.destinations:
+            if destination.n_id not in world_scene_travel.CENSUS_SOURCES:
+                continue
+            if destination.n_id == world_scene_entry.HOME_SCENE_ID:
+                continue
+            spawn = _spawn_position(destination)
+            _, expected_seq = world_scene_travel.entry_fields(destination)
+            wrong_seq = expected_seq + 7
+            with self.subTest(scene=destination.n_id):
+                entry = world_scene_entry.resolve_entry(
+                    Position(spawn.scene_id, wrong_seq,
+                             spawn.x + 50.0, spawn.y + 50.0, spawn.z),
+                    registry=self.registry,
+                    emit=lambda line: None,
+                    via_login=True,
+                )
+                self.assertFalse(entry.relocated)
+                self.assertEqual(
+                    entry.position.scene_seq, expected_seq,
+                    "a kept row carried the sequence it was STORED with "
+                    "(%d) instead of the one this destination declares (%d)"
+                    % (entry.position.scene_seq, expected_seq))
+                kept_any = True
+        self.assertTrue(
+            kept_any,
+            "no destination took the kept arm, so this case proved nothing")
+
     def test_every_kept_row_basis_is_one_this_module_declares(self):
         """pf-adversary D8 of round ioz8fd: ``KEPT_ROW_BASES`` had NO reader
         anywhere in the tree - not production, not a test - so it was a

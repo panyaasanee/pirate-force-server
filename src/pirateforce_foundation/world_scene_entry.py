@@ -202,6 +202,18 @@ RELOCATED_OUTSIDE_GROUND = "stored_xy_outside_pinned_ground_extent"
 # _require_finite_float` refuses NaN/Inf); the login path was the one that
 # did not have it, which is the path that matters most.
 RELOCATED_ROW_NOT_FINITE = "stored_xy_not_a_finite_number"
+# ADDED round 949y62 (LANE-A), pf-adversary D6 of round sbqohw, MEASURED:
+# `3.5e38` is FINITE, so the check above lets it through, and it is OUTSIDE
+# float32, so `struct.pack("<f", ...)` raises `OverflowError` in the encoder
+# that puts this row on the wire.  `player_wire._resolve_login_movement_speed`
+# already spells out why that is worse than a wrong number: OverflowError
+# subclasses ArithmeticError, which none of the four handlers guarding these
+# composers catches (runtime.py 3387 / 8093 / 8419 catch ValueError,
+# RuntimeError, TypeError), so an uncaught one unwinds the listener thread --
+# and the row that produced it is durable, so it does it again on the next
+# login, forever.  The rule on this path is the FLOAT32 rule, not
+# `math.isfinite`, for the same reason it is the float32 rule over there.
+RELOCATED_ROW_OUTSIDE_FLOAT32 = "stored_xy_outside_float32_range"
 
 # THE RETURN TICKET, AND WHY IT OVERWRITES A ROW THE OWNER SAID TO KEEP.
 # PANYA-DECISION 20260908_1218 is that a login puts a character back where it
@@ -234,6 +246,15 @@ RELOCATION_REASONS = (
     RELOCATED_NO_GROUND_EVIDENCE,
     RELOCATED_OUTSIDE_GROUND,
     RELOCATED_ROW_NOT_FINITE,
+    RELOCATED_ROW_OUTSIDE_FLOAT32,
+)
+# The two reasons above that say "this row is not a place, whoever is asking".
+# Kept as its own tuple because the arm that fires them is the ONLY arm of
+# `resolve_entry` that is not gated on the destination: see the comment on
+# `_wire_refusal` for why home is inside it and not outside it.
+NOT_A_PLACE_REASONS = (
+    RELOCATED_ROW_NOT_FINITE,
+    RELOCATED_ROW_OUTSIDE_FLOAT32,
 )
 
 # Why a stored position WAS the one used, for the same reader at 2am.  Both
@@ -471,6 +492,12 @@ def _ground_refutes_stored_row(
     return True
 
 
+# The largest magnitude `struct.pack("<f", ...)` accepts.  Spelled the same
+# way `player_wire` spells it, and for the same reason: past this value the
+# encoder raises rather than rounds.
+_F32_MAX = 3.4028234663852886e38
+
+
 def _row_is_finite(row: Position) -> bool:
     """Is every coordinate of this stored row an actual number?
 
@@ -485,6 +512,67 @@ def _row_is_finite(row: Position) -> bool:
         and math.isfinite(row.y)
         and math.isfinite(row.z)
     )
+
+
+def _wire_refusal(row: Position) -> str | None:
+    """Why the teleport encoder cannot carry this row - or ``None``.
+
+    Two findings, one arm (pf-adversary D5 and D6 of round sbqohw):
+
+    D5.  ``_row_is_finite`` was asked on every destination EXCEPT home,
+         because the home arm of ``resolve_entry`` returned the row verbatim
+         before any question was put to it.  Home is the destination every
+         character reaches by default, so the one scene the check skipped is
+         the one it was needed in most.  A row of ``(1, 0, nan, nan, nan)``
+         is not a place in Port Royal any more than it is a place in scene
+         17, and "the row IS the position, byte for byte" is a statement
+         about which POSITION is chosen, never a licence to put bytes the
+         encoder refuses onto the wire.
+
+    D6.  Being a number is not enough: the wire field is a float32.
+         ``3.5e38`` passes ``math.isfinite`` and raises ``OverflowError``
+         inside the encoder - see ``RELOCATED_ROW_OUTSIDE_FLOAT32`` for why
+         that is a dead listener thread rather than a bad landing.
+
+    NOT a rounding check.  A coordinate that survives the range test but
+    loses precision as a float32 is a slightly wrong place, which the next
+    client report corrects; that is a different (and much smaller) problem
+    than a place that does not exist, and conflating them would relocate
+    characters who are standing exactly where they should be.
+    """
+    if not _row_is_finite(row):
+        return RELOCATED_ROW_NOT_FINITE
+    for value in (row.x, row.y, row.z):
+        if not (-_F32_MAX <= value <= _F32_MAX):
+            return RELOCATED_ROW_OUTSIDE_FLOAT32
+    return None
+
+
+def _wire_safe_heading(heading: float) -> float:
+    """The heading to send, replacing one the encoder would refuse.
+
+    The docstring above says a bad heading is a smaller problem than a bad
+    coordinate, and that is still true of a WRONG heading.  It is not true
+    of a heading the encoder cannot carry: ``f32tag`` packs the heading with
+    the same ``struct.pack("<f", ...)`` that raises on the coordinates, so a
+    NaN or ``3.5e38`` heading unwinds the same listener thread - and it does
+    it even on the relocation arms, which hand ``row.heading`` straight back
+    to ``entry_position``.
+
+    Replaced rather than relocated: 0.0 is the documented entry default
+    (``world_scene_travel.entry_position``), the character still lands where
+    the rules put them, and only the direction they face is a value nobody
+    measured anyway.  Whether this fired is reported - see
+    ``HEADING_REPLACED`` in ``resolve_entry``.
+    """
+    if type(heading) not in (int, float):
+        return 0.0
+    heading = float(heading)
+    if not math.isfinite(heading):
+        return 0.0
+    if not (-_F32_MAX <= heading <= _F32_MAX):
+        return 0.0
+    return heading
 
 
 def _measured_envelope_refutes(
@@ -770,26 +858,37 @@ def resolve_entry(
     scene_id, scene_seq = world_scene_travel.entry_fields(target)
 
     kept_basis = None
-    if target.n_id == HOME_SCENE_ID:
-        position = row
+    # The heading is sanitised for EVERY arm below, including the ones that
+    # hand the row straight back, because every arm ends on the same encoder.
+    heading = _wire_safe_heading(row.heading)
+    heading_replaced = not (
+        type(row.heading) in (int, float) and float(row.heading) == heading
+    )
+    wire_refusal = _wire_refusal(row)
+    if wire_refusal is not None:
+        # Asked BEFORE any ground question AND before the home arm, because
+        # every question below compares the row against a measurement and NaN
+        # loses every comparison silently: `abs(nan - centre) <= extent` is
+        # False, which reads as "outside" by luck rather than by decision,
+        # and +/-Inf is inside nothing but was kept by the login branch
+        # because nothing measured could refute it.  A row that is not a
+        # place is not a place, whoever is asking and whichever scene is
+        # asked about, so this arm is gated on neither via_login nor the
+        # destination (pf-adversary D5 of round sbqohw: home was outside it).
+        position = world_scene_travel.entry_position(target, heading)
+        reason = wire_refusal
+    elif target.n_id == HOME_SCENE_ID:
+        position = row if not heading_replaced else Position(
+            row.scene_id, row.scene_seq, row.x, row.y, row.z, heading,
+        )
         reason = None
-    elif not _row_is_finite(row):
-        # Asked BEFORE any ground question, because every question below
-        # compares the row against a measurement and NaN loses every
-        # comparison silently: `abs(nan - centre) <= extent` is False, which
-        # reads as "outside" by luck rather than by decision, and +/-Inf is
-        # inside nothing but was kept by the login branch because nothing
-        # measured could refute it.  A row that is not a number is not a
-        # place, whoever is asking, so this arm is not gated on via_login.
-        position = world_scene_travel.entry_position(target, row.heading)
-        reason = RELOCATED_ROW_NOT_FINITE
     elif _within_ground(target, row):
         # The row is inside the only ground this scene has evidence for, so it
         # is a position this scene can account for.  Keep it, but keep it in
         # this scene's own frame: scene_seq is whatever entry_fields says for
         # this destination, never whatever the row happened to carry.
         position = Position(
-            scene_id, scene_seq, row.x, row.y, row.z, row.heading,
+            scene_id, scene_seq, row.x, row.y, row.z, heading,
         )
         reason = None
         kept_basis = KEPT_ROW_WITHIN_GROUND
@@ -800,7 +899,7 @@ def resolve_entry(
         # row the client wrote beats a spawn nobody stood on, so the row
         # wins.  Same frame discipline as the branch above.
         position = Position(
-            scene_id, scene_seq, row.x, row.y, row.z, row.heading,
+            scene_id, scene_seq, row.x, row.y, row.z, heading,
         )
         reason = None
         kept_basis = (
@@ -808,7 +907,7 @@ def resolve_entry(
             else KEPT_ROW_INSIDE_ENVELOPE
         )
     else:
-        position = world_scene_travel.entry_position(target, row.heading)
+        position = world_scene_travel.entry_position(target, heading)
         reason = (
             RELOCATED_NO_GROUND_EVIDENCE if target.ground_extent is None
             else RELOCATED_OUTSIDE_GROUND
@@ -909,6 +1008,20 @@ def resolve_entry(
                 "pinned_spawn" if moved
                 else ("stored_row" if via_login else "caller_row"),
             )
+        )
+
+    # A replaced heading is reported on its own line rather than folded into
+    # the relocation line, because it is a different fact: the character is
+    # standing where the rules put them and only the direction they face was
+    # overridden.  Printed on every arm, home included -- home is the arm
+    # where a caller reading "no second line" concluded "nothing was changed"
+    # (pf-adversary D5 of round sbqohw is that mistake about the position;
+    # this is the same mistake waiting to be made about the heading).
+    if heading_replaced:
+        lines.append(
+            "SCENE_ENTRY_HEADING_REPLACED scene={0} stored={1!r} used={2:.3f} "
+            "reason=heading_the_float32_encoder_refuses"
+            .format(target.n_id, row.heading, heading)
         )
 
     for line in lines:
