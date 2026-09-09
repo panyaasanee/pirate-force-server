@@ -312,11 +312,23 @@ class TheRoundTripIsInjectiveTests(unittest.TestCase):
             self.assertEqual(
                 wire.encode_request_be_friend_payload(fields), payload,
             )
-        # Not pinned to an exact count: it is a random scan, and a pinned
-        # number here would only pin the seed.  What is pinned is that a
-        # large majority decoded, so a decoder that started refusing
-        # everything could not make this test pass by testing nothing.
-        self.assertGreater(decoded, 150000)
+        # D11 (pf-adversary round asw0n3, left open by design at the
+        # time): `random.Random(7)` is a FIXED seed, so this count is not
+        # a property of chance, it is a property of this scan -- pinning
+        # it is the same move `test_every_two_byte_...` already makes for
+        # the other half, not a new kind of claim.  Verified reproducible
+        # on both CPython 3.11.15 (this clone) and CPython 3.14.0rc2 (the
+        # gate's interpreter, via `uv run --python 3.14`) before pinning:
+        # both runs printed 187657, three times each, same process and a
+        # fresh one.  It is also not a new number: 63488 (the two-byte
+        # scan just above) + 187657 (this one) = 251145, the exact figure
+        # the module docstring has quoted since the round that measured
+        # it (`git log -p` on that line) -- so this literal was already
+        # load-bearing in prose and simply unpinned in the test that
+        # produced it.  A decoder that started refusing more (or fewer)
+        # of these 200,000 payloads now fails a specific assertion
+        # instead of surviving under `assertGreater(decoded, 150000)`.
+        self.assertEqual(decoded, 187657)
 
 
 class TheReviewedRowsTests(unittest.TestCase):
