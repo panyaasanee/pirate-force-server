@@ -91,8 +91,18 @@ ADMISSIBLE_TODAY = (
 # talks about "the sanctioned scene" is talking about a scene stood up by
 # `_install_a_sanction`, and any case that needs 126 SHUT has to bend the
 # registry as well -- neither condition is true of the tree these tests run
-# on.  The one case that reads the shipped map without either fixture is
-# `test_the_map_is_exactly_the_letters_this_lane_holds`, and it is marked.
+# on.
+# ~~The one case that reads the shipped map without either fixture is
+# `test_the_map_is_exactly_the_letters_this_lane_holds`, and it is marked.~~
+# -- STRUCK, MEASURED FALSE by pf-adversary D8 in the same round that wrote
+# it, which is the defect this whole round was spent paying off.  THREE
+# cases read the shipped map with no fixture: that one (line ~311),
+# `test_no_sanction_has_outlived_its_blocker` (~332, which walks the shipped
+# map through `retirable_sanctioned_scene_ids()` and says of itself that it
+# is vacuous today), and `test_the_map_refuses_an_item_assignment` (~433,
+# a typo guard that touches the real object).  Counted from the file rather
+# than remembered; `_install_a_sanction`'s own docstring says two, which is
+# also short by one.
 
 SANCTIONED = 126
 # The citation the retired row carried.  Only ever a console string.
@@ -295,6 +305,31 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
                     "the sanction is granting something the plain rule "
                     "refuses on the shipped registry",
                 )
+                # 🔴 THIS ASSERTION HAS NO TEETH ON THIS BRANCH, said here
+                # rather than left for the next reader to find (pf-adversary
+                # D4, LANE-A round 9ic0io).  `single_use_entry_is_admissible`
+                # returns True as soon as `login_entry_is_pinned` is True, so
+                # once this branch opened 126's row the line above is
+                # `True == True` by algebra and its message can never print.
+                # Measured: a mutant making the widening admit EVERY scene
+                # passes this case.
+                #
+                # IT IS NOT FIXED BY BENDING THE ROW SHUT, which was the
+                # obvious repair and is wrong: with the row shut and a
+                # sanction installed the widening admits while the plain
+                # rule refuses, which is precisely what the widening EXISTS
+                # to do.  Asserting they agree there would pin the opposite
+                # of the module's contract.  Tried, measured, reverted.
+                #
+                # WHERE THE TEETH ARE, so this is a redirection and not a
+                # shrug: the same mutant is caught by 17 cases in
+                # `test_gm_login_scene_sanctioned_admission.py` and
+                # `test_gm_login_scene_registry_snapshot.py`, which drive the
+                # widening on a bent reading where the two answers can
+                # legitimately differ.  What is left here is the loop and
+                # the count, which still catch a fixture that stops reaching
+                # the module -- and the blocker check below, which does have
+                # teeth on this branch.
                 if plain:
                     self.assertEqual(
                         login_scene_admission.sanctioned_barred_blocker(
@@ -422,13 +457,35 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
                 scene_registry=shut
             ),
         )
-        # The shipped reading, with the sanction still installed so this is
-        # not quietly asking a different question: the row is what admits
-        # 126 now, not the entry standing beside it.
-        self.assertTrue(login_scene_admission.login_entry_is_pinned(SANCTIONED))
-        self.assertIn(
-            SANCTIONED, login_scene_admission.single_use_stageable_scene_ids()
-        )
+        # The shipped reading.
+        # ~~with the sanction still installed so this is not quietly asking
+        # a different question: the row is what admits 126 now, not the
+        # entry standing beside it~~ -- STRUCK, pf-adversary D5 in the same
+        # round: leaving the sanction installed gives the pair TWO reasons
+        # to pass, so a mutant that drops 126 from the single-use map by way
+        # of the ROW still passes on the sanction's back.  Measured: making
+        # `single_use_stageable_scene_ids` filter 126 out of the stageable
+        # half left this case green.
+        #
+        # The claim needs the sanction GONE, which is what the shipped map
+        # actually says, so it is removed here rather than assumed absent -
+        # `_install_a_sanction` above patched it in for the lines above.
+        with mock.patch.object(
+            login_scene_admission,
+            "SANCTIONED_BARRED_SCENES",
+            MappingProxyType({}),
+        ):
+            self.assertTrue(
+                login_scene_admission.login_entry_is_pinned(SANCTIONED)
+            )
+            self.assertIn(
+                SANCTIONED,
+                login_scene_admission.single_use_stageable_scene_ids(),
+                "with no sanction anywhere, 126 reaches the single-use map "
+                "only through its own registry row -- if this is red the "
+                "row stopped carrying it and the sanction was the thing "
+                "holding it up all along",
+            )
 
     def test_the_map_refuses_an_item_assignment(self):
         # A TYPO GUARD, and pf-adversary (D8) was right that the first

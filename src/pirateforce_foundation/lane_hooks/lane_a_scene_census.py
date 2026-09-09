@@ -616,14 +616,27 @@ def scene_is_sanctioned_for_a_gm_entry(
     predicate gates what a session STANDING IN A SCENE is sent; it is asked
     by a composer the arrival path calls after the login has already put the
     character there.  It cannot move a character, cannot stage a login, and
-    cannot make the ordinary login path admit anything: a session with no GM
-    grant is still refused at ``resolve_entry`` with
-    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code at all.
-    ``login_entry_allowed`` for scene 126 is untouched by this round --
-    ``COO-DECISION 20260829_1444`` wants an attended var2 test before any
-    flip, and this arm is not that flip: it does not widen who may ENTER,
-    only whether a GM who is already there is shown the scene's own cast
-    instead of an empty ocean.
+    cannot make the ordinary login path admit anything.
+    ~~a session with no GM grant is still refused at `resolve_entry` with
+    `REFUSED_NOT_ALLOWED_AT_LOGIN` and never reaches this code at all.
+    `login_entry_allowed` for scene 126 is untouched by this round --
+    `COO-DECISION 20260829_1444` wants an attended var2 test before any
+    flip~~ -- STRUCK, MEASURED FALSE, LANE-A round 9ic0io (pf-adversary D3).
+    Both halves were true when written and are false on this branch, which
+    is the branch that flipped the row: driving
+    ``world_scene_entry.resolve_entry(Position(126, ...), via_login=True)``
+    with no GM grant of any kind now ADMITS, and so do 17, 304 and 305.  The
+    ``1444`` clause is spent as well -- ``PANYA-DECISION 20260908_1218``
+    voided the attended-var2 precondition it names, which is what
+    ``tests/test_lane_a_scene_census.py`` already says in the case that pins
+    this arm.
+
+    WHAT SURVIVES THE STRIKE, and is the sentence this paragraph exists for:
+    THIS ARM still does not widen who may ENTER.  It decides only whether a
+    session already standing in the scene is shown the scene's own cast
+    instead of an empty ocean.  The login door for 126 is the registry row,
+    a different file and a different decision; what changed is that the row
+    is now open, not that this predicate gained the power to open it.
 
     Fail-closed in every direction, the same as the first arm: an import
     that is not there, a registry that will not load, a predicate that
@@ -905,12 +918,18 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
     for the same reason: this predicate gates what a session ALREADY
     STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
-    a login, and cannot make the ordinary login path admit anything - a
-    session with no GM grant is refused at ``resolve_entry`` with
-    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code, and
+    a login, and cannot make the ordinary login path admit anything.
     ``/warp`` itself is refused for a non-GM account by
-    ``accounts.is_gm_account`` before any of this runs.
-    ``login_entry_allowed`` for 126/304/305 is untouched by this round.
+    ``accounts.is_gm_account`` before any of this runs, and that half is
+    still true.
+    ~~a session with no GM grant is refused at `resolve_entry` with
+    `REFUSED_NOT_ALLOWED_AT_LOGIN` and never reaches this code, and
+    `login_entry_allowed` for 126/304/305 is untouched by this round~~ --
+    STRUCK, MEASURED FALSE, LANE-A round 9ic0io (pf-adversary D3), same
+    defect as the second arm carries and struck for the same measurement:
+    on this branch ``resolve_entry(..., via_login=True)`` admits 17, 126,
+    304 and 305 with no GM grant, because this is the branch that opened
+    their rows.  This arm is still not what opened them.
 
     ~~[ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
     ``COO-DECISION 20260905_2052`` item 1** (letter

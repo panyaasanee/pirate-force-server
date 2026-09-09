@@ -885,7 +885,16 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
         # explanation that quotes the phrase would flag itself.  That is
         # exactly the trap the strike comments in lane_a_scene_census.py:303
         # and :329 had to be re-worded around.
-        re.compile(r"registered,?\s*(?:but\s*)?never fired", re.IGNORECASE),
+        # WIDENED in the same round it was added (pf-adversary D8): the
+        # first version was `registered,?\s*(?:but\s*)?never fired`, which
+        # carried none of the tolerance the field-literal pattern above
+        # documents as necessary - and this very commit measured that the
+        # line-wrap-plus-hash shape occurs in the file this pattern scans.
+        # Driven: the same false claim about scene 4 written across two
+        # comment lines survived the narrow form and is caught by this one.
+        # `fires` is included because the present tense says the same thing.
+        re.compile(r"registered,?[\s#]*(?:but[\s#]*(?:has[\s#]*)?|and[\s#]*)?"
+                    r"never[\s#]*fire[sd]", re.IGNORECASE),
     )
 
     @staticmethod

@@ -191,11 +191,28 @@ ATLANTIS = 126
 # LANE-GM RETIRED SCENE 126'S SANCTION (their round `xbfcsi`, 2026-09-09, on
 # `COO-DECISION 20260908_2141`), so `SANCTIONED_BARRED_SCENES` is empty on
 # main and this lane's SECOND admission arm -- the one that asks the GM
-# lane's own predicate -- answers no for 126 until lane A's login row lands
-# and the FIRST arm covers it.  The arm's rules are this lane's, not scene
-# 126's, so the cases that test the ARM stand a sanction up for the duration
-# of one test instead of going quietly vacuous.  The cases that ask what is
-# true ON MAIN (`TheRetiredSanctionIsRecordedHereTests`) never call this.
+# lane's own predicate -- answers no for 126.  The arm's rules are this
+# lane's, not scene 126's, so the cases that test the ARM stand a sanction up
+# for the duration of one test instead of going quietly vacuous.
+#
+# THREE CORRECTIONS, LANE-A round 9ic0io (pf-adversary D6), all measured:
+# 1. ~~answers no for 126 UNTIL lane A's login row lands and the FIRST arm
+#    covers it~~ -- that reads as "the second arm starts saying yes once the
+#    row lands".  It does not, ever: the second arm is `is_sanctioned_barred_
+#    scene AND single_use`, and with the map empty on main the first half is
+#    permanently false.  Measured on this branch, with the row landed and the
+#    fixture removed: `scene_is_sanctioned_for_a_gm_entry(126)` is False.
+#    What the landed row changes is which arm CARRIES 126's census (the
+#    first), not what this one answers.
+# 2. ~~The cases that ask what is true ON MAIN
+#    (`TheRetiredSanctionIsRecordedHereTests`) never call this.~~ -- there is
+#    no such class in this repository; `grep` finds the name only in the
+#    sentence that invented it.  The case that asks what main carries is
+#    `test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction`.
+# 3. It does NOT avoid this fixture -- it lives in a class whose `setUp`
+#    installs the sanction, and it works around that by re-patching the map
+#    with `_shipped_gm_sanction_map()` for the length of its own block.
+#    "Never call this" was false in both halves.
 #
 # Touching only this file's tests is what `COO-DECISION 20260908_2141` and
 # `20260908_1742` item 4 allow: no lane sends another lane a bill, and no
