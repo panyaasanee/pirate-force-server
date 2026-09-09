@@ -32,10 +32,22 @@ from .inventory import (
     require_backpack_shape,
     swap_known_item_with_occupied_slot,
 )
+from .gm import item_catalog
 from .model import Character, Position
 from .persistence_ground_drops import GroundDropRow
 from .persistence_home_marker import HomeMarkerRow
 from .persistence_quest_state import QuestCounterRow, QuestFlagRow
+
+#: The backpack's own slot bound, restated here rather than imported.
+#: ``inventory.require_backpack_shape`` bounds ``item.slot`` to ``0..39``
+#: (the same 40 a character-select admission module and ``mob_pickup.py``
+#: each name their own ``BAG_SLOT_COUNT`` for -- named by role, not by
+#: filename, because the gate-2 predicate module's own name is reserved to
+#: `session.py`'s import scan and a bare mention elsewhere is what that
+#: scan exists to catch) -- this lane duplicates the number rather than
+#: taking a new import from either, the same choice those two modules
+#: already made about each other.
+_MINT_BACKPACK_SLOT_COUNT = 40
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -1078,6 +1090,135 @@ class SQLiteStore:
             if after != expected:
                 raise RuntimeError("acquired-row post-state validation failed")
             return after
+
+    def mint_backpack_item(
+        self, sid: str, character_id: int, item_id: int, quantity: int,
+        category: str,
+    ) -> BackpackState:
+        """[PROPOSED name/signature -- LANE-Q pins the final one] Give a
+        character ONE new backpack row for a known catalog item, with NO
+        ground drop involved.
+
+        `category` IS REQUIRED, NOT A CONVENIENCE (pf-adversary, round
+        `ukgmj3`, finding 1 on the first draft, which took no `category`
+        and called `item_catalog.is_known_item(item_id)` bare).  That draft
+        minted a caller's intended "Sky Lantern" (quest) and "Adventure Key"
+        (misc) identically, because `gm.item_catalog`'s own docstring
+        measures hundreds of ids that mean a DIFFERENT item depending on
+        which of its three tables is asked -- `item_catalog.item_name` and
+        `item_catalog.item_max_stack` already refuse to guess for exactly
+        this reason.  This method now asks the same way: `is_known_item`
+        is called WITH `category`, scoped to one table, so id `1` minted as
+        `category="quest"` and id `1` minted as `category="misc"` are two
+        different, unambiguous calls rather than one call that silently
+        picked whichever table happened to match first.
+
+        `COO-DECISION 20260908_2055` ("the item minter next to your own
+        door is yours"), answering LANE-Q's `20260908_1942` ask (routed to
+        COO, not to this lane, per that letter's own point 1) and this
+        lane's own `20260908_1613` measurement that the write door
+        (`commit_acquired_backpack_item`) already exists and the missing
+        piece is a minter that composes a row from an item number and a
+        quantity instead of a caller building an `ItemAttrState` by hand.
+        LANE-Q's quest-reward payout (`20260907_1027`, `20260908_1219`
+        starting-cash question answered separately) is the caller this
+        exists for; `runtime.py`'s hookup is outside both lanes' zones and
+        is not this method's job.
+
+        NOT A NEW WRITE PATH.  This composes the row (next free identity,
+        first free slot, the caller's template id and quantity) and lands
+        it through `commit_acquired_backpack_item` -- the SAME gate a
+        ground pickup uses -- rather than adding a second way to put a row
+        in `character_backpack_items`.  Every refusal that door already
+        enforces (session ownership, gate-2 shape, atomicity with the
+        identity counter) applies here for free, and this lane's own
+        seat-counting pin over `character_backpack_items` writers (in the
+        test file for the birth-bag admission window's expiry) is
+        untouched: no new `INSERT INTO character_backpack_items` or
+        `UPDATE ... next_item_identity` appears in this function's own
+        body.
+
+        FOUR NAMED REFUSALS, READABLE BY TYPE (`COO-DECISION 20260908_2055`
+        calls for exactly this, so a caller can tell "nothing happened" from
+        "something is wrong" without parsing a message):
+          * `category` not one of `gm.item_catalog.CATEGORIES` -> `ValueError`
+            raised by `item_catalog.is_known_item` itself (it validates the
+            category before touching a table).
+          * `item_id` not in that ONE category's committed table -> `KeyError`.
+            This door does not mint a template id nobody shipped in that
+            category, and does not mint a WEAPON id either (`class_catalog`
+            and the class-birth-gear module that reads it hold a different
+            catalog for a different caller; see the nonclaim below).
+          * `quantity` not a positive `int` -> `TypeError` (wrong type) or
+            `ValueError` (`< 1`), mirroring `commit_acquired_backpack_item`'s
+            own quantity floor one line before this method ever reaches it.
+          * No free slot -> `ValueError` naming the bag as full.  This is
+            read BEFORE anything is composed, so a full bag never reaches a
+            half-built row.
+
+        ATOMICITY, AND WHERE IT ACTUALLY LIVES.  The read this method does
+        (`get_backpack` / `backpack_issued_through`) is a separate
+        connection from `commit_acquired_backpack_item`'s own `BEGIN
+        IMMEDIATE` -- it is not, and does not need to be, one transaction
+        with the write.  A second writer landing a row between this read
+        and that call is not a corruption: `commit_acquired_backpack_item`
+        re-validates the identity and the slot INSIDE its own transaction
+        and raises `ValueError` naming the race, exactly as it already does
+        for two ground pickups racing each other.  This method does not
+        catch or soften that.
+
+        NONCLAIMS.
+          * Does not validate that `item_id` is safe to give away, that a
+            quest is allowed to reward it, or that the quantity respects the
+            item's own max-stack size (`gm.item_catalog.item_max_stack`
+            exists and this method does not call it) -- "is this number a
+            real, existing item in the category the caller named" is the
+            whole check, the same scope `commit_ground_drop`'s docstring
+            draws around its own "known-item check is LANE-B's, not this
+            lane's".
+          * Does not cover weapon/armor template ids (`2200002` and
+            neighbors) -- `gm.item_catalog` only carries the misc/
+            consumable/quest tables it was extracted from.  A caller minting
+            a class weapon is a different door with a different catalog;
+            see `pf_bridge/NOW.md`'s LANE-DB queue item 3.
+          * Has no caller in `runtime.py` or `lua_api/` as of this round --
+            wiring is explicitly named out of scope by the COO decision this
+            method answers.
+        """
+        if isinstance(item_id, bool) or not isinstance(item_id, int):
+            raise TypeError("item_id must be an int")
+        # `category=None` would fall through to item_catalog.is_known_item's
+        # own bare (ambiguous) lookup -- the exact shape this parameter
+        # exists to close off, so `None` is refused here rather than let
+        # through to a call that would silently accept it.
+        if not isinstance(category, str):
+            raise TypeError("category must be a str")
+        if not item_catalog.is_known_item(item_id, category=category):
+            raise KeyError(
+                "item_id %d is not a known catalog item in category %r"
+                % (item_id, category)
+            )
+        if isinstance(quantity, bool) or not isinstance(quantity, int):
+            raise TypeError("quantity must be an int")
+        if quantity < 1:
+            raise ValueError(
+                "quantity %d is not a mintable quantity" % quantity
+            )
+        bag = self.get_backpack(sid, character_id)
+        taken_slots = {row.slot for row in bag.items}
+        slot = next(
+            (candidate for candidate in range(_MINT_BACKPACK_SLOT_COUNT)
+             if candidate not in taken_slots),
+            None,
+        )
+        if slot is None:
+            raise ValueError(
+                "backpack is full (%d/%d slots); nothing was minted"
+                % (len(bag.items), _MINT_BACKPACK_SLOT_COUNT)
+            )
+        identity = self.backpack_issued_through(sid, character_id) + 1
+        item = ItemAttrState(identity, item_id, quantity, slot)
+        return self.commit_acquired_backpack_item(sid, character_id, item)
 
     def apply_v111_stack_merge(
         self, sid: str, character_id: int,
@@ -3996,7 +4137,12 @@ class SQLiteStore:
         skill practice ground on GM ACCOUNTS ONLY -- `/skill all` grants
         every skill regardless of `n_LEVEL_LEARN`.  This lane's half of that
         order is the row that survives the relog; the command itself is
-        LANE-GM's and this method has NO production caller yet.
+        LANE-GM's, and as of `gm/skill_all_command.py` (PR `server#1176`,
+        `COO-DECISION 20260908_1943`) it IS that command's production
+        caller -- corrected this round, `pf_bridge/notes_to_chief/
+        20260908_2116_LANE-GM-TO-LANE-DB-grant-gm-skills-has-a-production-
+        caller-now-your-docstring-says-it-does-not.md`, after this sentence
+        sat false on `main` since that PR landed.
         `migrations/018_character_skills_gm_grant_source.sql` widens
         `character_skills.source` to admit `'gm_grant'`, and this is the
         only thing in the codebase that writes that value.
