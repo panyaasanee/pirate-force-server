@@ -439,10 +439,20 @@ class FoundationSession:
         self.backpack = updated
         return True
 
-    def checkpoint(self, position):
+    def checkpoint(self, position, *, durable: bool = True):
+        # `durable=False` (CORE-REQUEST `1808` item 1, chief round 6o2786):
+        # verify the lease and move the in-memory row, but leave the stored
+        # `character_positions` column untouched.  The caller is runtime's
+        # `_checkpoint_unless_the_label_is_a_guess`, for the frames where the
+        # scene half of the row is the server's own unconfirmed guess.  This
+        # is the SAME shape the scene-17 pin already produces -- ownership
+        # verified, column skipped, in-memory row updated -- reached by a
+        # caller's decision instead of the registry's.
         if self.selected is None:
             raise RuntimeError("no selected character")
-        self.lifecycle.checkpoint(self.session_id, self.selected, position)
+        self.lifecycle.checkpoint(
+            self.session_id, self.selected, position, durable=durable,
+        )
         self.selected = replace(self.selected, position=position)
 
     def close(self, position=None):
@@ -526,7 +536,7 @@ class ReadOnlyFoundationSession:
             self.scenario.player_basic_faction,
         )
 
-    def checkpoint(self, _position):
+    def checkpoint(self, _position, *, durable: bool = True):
         raise PermissionError("scene-load milestone cannot checkpoint")
 
     def merge_v111_stack(self):

@@ -4826,7 +4826,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # opens on one of two branches is still the D3 hole.
                 self._m2_note_arrival_if_confirmed(candidate)
             elif candidate != selected.position:
-                self.foundation.checkpoint(candidate)
+                self._checkpoint_unless_the_label_is_a_guess(candidate)
                 # CORE-REQUEST-GM-051 item 3.  The gate is the PERSISTENT
                 # flag, not the one-frame confirm window the first draft
                 # used (pf-adversary R328 D1 and D7): gm_warp_position_pending
@@ -4914,6 +4914,172 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # saying the reading was admitted, a counter saying it was, or
                 # a baseline pointing where no row points.
                 self._move_authority_record_admitted(verdict, target, stamp)
+
+        def _checkpoint_unless_the_label_is_a_guess(self, candidate) -> bool:
+            """CORE-REQUEST `1808` item 1: close the SOURCE of the two-owner row.
+
+            THE DEFECT, IN THE WORDS OF THE LANE THAT MEASURED IT.  The row
+            this method writes has two owners: ``x/y/z`` are what the CLIENT
+            just reported in ``TargetPosVital``, and ``scene_id`` comes from
+            ``selected.position.scene_id`` -- the SERVER's belief, which
+            ``_gm_warp_resync_selected_scene`` sets to a warp DESTINATION at
+            queue time and which stays wrong for the rest of the session when
+            the client never follows.  ``/warp 305`` that the client ignores,
+            plus one ordinary step, used to write ``(305, Port Royal's
+            coordinates)`` into ``character_positions`` -- permanently, since
+            PANYA `1218` made login accept the stored row wholesale instead of
+            bouncing it off a marker.  Scene 305 carries no ``ground`` block,
+            so nothing downstream can refute such a row either (measured this
+            round: ``is_position_persist_allowed`` is True for 304/305/126/278
+            /997 and False only for 14/17).
+
+            WHAT THIS GATE IS, AND WHY IT IS NOT A NEW PIECE OF STATE.  The
+            server already knows when its own scene label is a guess:
+            ``scene_label_is_server_guess`` is set the moment the label is
+            relabelled to a destination the client has not backed (the GM warp
+            resync and the M2 journey both set it) and is cleared only by the
+            client's own coordinates landing on the target, or by the M2
+            arrival path.  Until this round that flag governed only whether
+            ``client_confirmed_scene`` was allowed to advance -- the durable
+            write beneath it was unconditional, and the comment two blocks
+            down said so in as many words.  So the field that exists to say
+            "do not trust this label" was consulted for the bookkeeping and
+            ignored for the row that outlives the session.
+
+            WHY "WITHHOLD" AND NOT "WRITE THE LAST CONFIRMED SCENE" (COO
+            `1943` allowed either).  Writing ``client_confirmed_scene`` with
+            THIS frame's coordinates produces the same defect mirrored: on a
+            warp the client DID follow, the last confirmed scene is the
+            DEPARTURE scene, and the row would carry the departure label with
+            the destination's coordinates.  Neither half can describe the
+            other's geometry, so when they disagree the honest row is no new
+            row at all -- the last-known-good one is left standing, which is
+            the same answer ``lifecycle.checkpoint`` already gives for a scene
+            pinned ``persist_position_allowed: false``.
+
+            AND THE GUESS ALONE IS NOT ENOUGH TO REFUSE A ROW -- MEASURED,
+            NOT REASONED.  A first draft withheld on the flag by itself and
+            took five tests in this tree down with it, each naming a case
+            where the label is a "guess" and the row is still the right one:
+
+              * ``gm/warp_send_watch._restore_selected_scene`` puts the
+                DEPARTURE scene back after a rollback (CORE-REQUEST-GM-059)
+                but nothing clears the flag, so a warp whose frame never went
+                out would have stopped that session persisting position at
+                all -- for the rest of its life, over a warp that did not
+                happen.
+              * PANYA `1218` item 2 requires the opposite of a refusal for
+                the M2 journey: a journey plus one step must leave a row that
+                brings the character back to the SEA rather than to Port
+                Royal (``tests/test_m2_teleport_check_seam_wiring.py``).
+
+            So the second half of the gate is the fence this project already
+            uses for exactly this question, ``warp_scene_persist.
+            login_would_accept``: the row is refused when the label is a
+            guess AND login would not take that scene back.  That is the row
+            that BRICKS -- stored, believed at the next login, and then
+            refused, which is a character that cannot be played rather than a
+            character standing in the wrong place.  It is also the same fence
+            R401 put on the M2 relabel, now applied to the write instead of
+            only to the label, so the two cannot disagree.  Measured today:
+            login refuses 17/126/304/305/343/345 and accepts 1/2/14/278/997,
+            and 305 is the scene LANE-A's letter measured the defect on.
+
+            WHAT THIS STILL DOES NOT CLOSE, SAID PLAINLY.  A warp to a scene
+            login DOES accept -- 278 is the live example, whose registry row
+            is ``sent_before=NO, return_ticket=REQUIRED`` -- that the client
+            never follows still writes that scene with the departure's
+            coordinates.  The character can log in, and cannot walk home.
+            Narrower than the brick and not fixed here; it is the first item
+            of this lane's next round and is named in the round file rather
+            than left for the next reader to rediscover.
+
+            WHAT IT COSTS, NAMED RATHER THAN HIDDEN.  A warp or a journey the
+            client DOES follow clears the flag on the frame that confirms it,
+            and the confirming frame runs this method BEFORE the clear -- so
+            for a refused destination the first step after an arrival writes
+            no durable row and the second one does.  One step, not one
+            session.  The in-memory row still moves on every frame either
+            way, so the census, the travel gates and every reader in this
+            file see the player where the player is.
+
+            THE LEASE CHECK IS NOT COLLATERAL.  ``store.save_position``'s
+            ownership SELECT is this project's only detection signal for a
+            stale or stolen lease, and it runs whether or not the column is
+            written.  So the withheld branch still goes through
+            ``foundation.checkpoint``, asking it for a non-durable write,
+            rather than skipping the call the way the login-override branch
+            above does: an unconfirmed warp can last the whole session, and a
+            session that stops verifying its own lease for that long is a
+            worse trade than the row this gate is protecting.  A session
+            object whose ``checkpoint`` predates the keyword raises TypeError,
+            which is caught at the call boundary (the honest guard named in
+            this file's own signature-reading block) and degraded to the
+            in-memory move, with an event that says the lease went unchecked
+            rather than a silent one.
+
+            Returns True when a durable write was attempted.
+            """
+            write_the_row = True
+            if getattr(self, "scene_label_is_server_guess", False):
+                try:
+                    write_the_row = warp_scene_persist.login_would_accept(
+                        candidate.scene_id,
+                    )
+                except Exception:  # noqa: BLE001 - a registry read, not a write
+                    # Fail CLOSED, the same direction every other gate in this
+                    # file fails: an unreadable fence cannot be read as consent
+                    # to write a row nobody can judge.
+                    write_the_row = False
+            if write_the_row:
+                self.foundation.checkpoint(candidate)
+                return True
+            # NEITHER checkpoint call below or above sits inside a `try`, and
+            # that is an interlock this repository enforces
+            # (`tools/pf_multiplayer_readiness_audit.py` X06, measured against
+            # every call in this file): v141's game listener has no `except`
+            # around `state.dispatch`, so a checkpoint whose raise can be
+            # swallowed is a stolen lease nobody hears about.  A first draft
+            # wrapped the non-durable call in `try/except TypeError` for
+            # sessions whose `checkpoint` predates the keyword and the audit
+            # caught it.  Reading the signature answers the same question
+            # without standing between the store and the listener -- the same
+            # idiom, and the same `except Exception` around the READ only,
+            # this file already uses for `name_colour_sweep.sweep_entries`.
+            # Bound BEFORE the try, and read through the local name inside
+            # it: the audit matches the text `self.foundation.checkpoint`
+            # wherever it appears, so even naming the method inside a `try`
+            # -- to read its signature, not to call it -- reads to that guard
+            # exactly like a swallowed write.  A guard that cannot tell those
+            # apart should be obeyed, not argued with.
+            checkpoint_callable = self.foundation.checkpoint
+            takes_the_keyword = False
+            try:
+                takes_the_keyword = "durable" in inspect.signature(
+                    checkpoint_callable
+                ).parameters
+            except Exception:  # noqa: BLE001 - see the block above
+                takes_the_keyword = False
+            if takes_the_keyword:
+                self.foundation.checkpoint(candidate, durable=False)
+                self.events.append(
+                    "durable_row_withheld_unconfirmed_scene_"
+                    f"{candidate.scene_id}"
+                )
+            else:
+                self.foundation.selected = replace(
+                    self.foundation.selected, position=candidate,
+                )
+                self.events.append(
+                    "durable_row_withheld_lease_unchecked_scene_"
+                    f"{candidate.scene_id}"
+                )
+            print(
+                "DURABLE_ROW_WITHHELD_UNCONFIRMED_SCENE "
+                f"{candidate.scene_id}",
+                file=sys.stderr,
+            )
+            return False
 
         def _note_client_confirmed_scene(self, scene_id, why: str) -> None:
             """CORE-REQUEST-GM-051 item 3: record a scene the CLIENT backed.
