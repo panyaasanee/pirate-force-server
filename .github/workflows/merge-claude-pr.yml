@@ -178,6 +178,45 @@ env:
   # The job inside gate-windows.yml whose conclusion IS the gate verdict.  If
   # that job is ever renamed, this must be renamed with it, in the same commit.
   PF_GATE_JOB: 'gate'
+  # [PANYA 20260909_1638 -> COO-ORDER 20260909_1640 item 3 -> chief round qnys56]
+  # The owner stopped four lanes mid-flight (UI, DB, GM, CS; Codex takes the work
+  # over) and their open pull requests must survive the pause.  The order's own
+  # words: "PR one'ang plooi wai, ham pit / plot draft" -- leave the pending pull
+  # requests alone, do not CLOSE them and do not UN-DRAFT them.  Without this
+  # guard the reaper does the opposite within one sweep: a stopped lane pushes
+  # nothing, so its drafts go quiet, and quiet past PF_STALE_HOURS is exactly the
+  # corpse the close path exists for.  #1120 (UI) and #1002 (CS) are the two this
+  # repository holds today, and both are drafts sitting on a red/NOT-CLEAN
+  # branch, which is precisely the shape `decide` closes on sight.
+  #
+  # HELD means exactly two things are forbidden, and only those two: CLOSING the
+  # pull request, and flipping its draft flag with `gh pr ready`.  A held pull
+  # request that is ready, marked and gate-green STILL MERGES -- measured need,
+  # not theory: #1198 ([LANE-DB] mint_class_weapon) was opened at 16:39 +07, one
+  # minute after the hold, and LANE-A/LANE-B are waiting on that door for the
+  # 20260909_1455 test range.
+  #
+  # #1096 (GM) is named in the order as the one the OWNER will close by hand.
+  # It is held here anyway: this guard only ever stops the REAPER, and a human
+  # clicking Close is not affected by any line in this file.
+  #
+  # Matched against the TITLE ONLY, never the body.  A body match would be a
+  # trap: any later round whose pull request DESCRIBES this mechanism would
+  # shield itself by accident and hang its own lane lock forever.
+  #
+  # TO LIFT THE HOLD: blank PF_HOLD_LANE_TAGS and PF_HOLD_PR_NUMBERS.  Empty
+  # values make the guard inert with no other edit -- that, and not a revert, is
+  # the undo the order names.  Space-separated, matched as literal substrings,
+  # so the brackets matter: `[LANE-DB]` cannot match `[LANE-DBX]`.
+  PF_HOLD_LANE_TAGS: '[LANE-UI] [LANE-DB] [LANE-GM] [LANE-CS]'
+  # Space-separated pull request numbers in THIS repository, for a held pull
+  # request whose title carries no lane tag.  Both of the ones the order names
+  # here already carry their tag; kept so the order can be checked against this
+  # file by number without reading any title.
+  PF_HOLD_PR_NUMBERS: '1120 1002 1096'
+  # A plain word a held lane can put in its own pull request TITLE when it pushes
+  # a HANDOFF draft during the pause, so it does not need a new number here.
+  PF_HOLD_WORD: 'HOLD-CODEX'
 
 jobs:
   # ==========================================================================
@@ -288,8 +327,38 @@ jobs:
           # Close a pull request, saying why.  Used on red, on conflict, and on
           # every failure of the merge itself - because a PR left open is the
           # one outcome this file may not produce.
+          # [PANYA 20260909_1638 / COO-ORDER 1640 item 3] Is this a pull request
+          # the owner paused?  See the PF_HOLD_* block at the top of this file
+          # for what "held" may stop (closing, un-drafting) and what it must not
+          # stop (merging a green one).  TITLE ONLY, on purpose.
+          on_hold() {
+            local n="$1" title="$2" t
+            for t in ${PF_HOLD_LANE_TAGS}; do
+              case "$title" in *"$t"*) return 0 ;; esac
+            done
+            for t in ${PF_HOLD_PR_NUMBERS}; do
+              if [ "$n" = "$t" ]; then return 0; fi
+            done
+            if [ -n "${PF_HOLD_WORD}" ]; then
+              case "$title" in *"${PF_HOLD_WORD}"*) return 0 ;; esac
+            fi
+            return 1
+          }
+
           close_pr() {
-            local pr="$1" head="$2" why="$3"
+            local pr="$1" head="$2" why="$3" title=""
+            # [PANYA 20260909_1638 / COO-ORDER 1640 item 3] Every close this job
+            # can reach - red gate, conflict, failed merge - comes through here,
+            # so the hold is enforced at this one point rather than at five call
+            # sites that could drift apart.  The title is re-read rather than
+            # threaded through three signatures: one extra API call on a path
+            # that is already about to comment and close.
+            title=$(api "repos/${REPO}/pulls/${pr}" | jq -r '.title // ""') || title=""
+            if on_hold "$pr" "$title"; then
+              echo "  #${pr} is HELD (owner's 20260909_1638 pause) - left open, NOT closed. The reason it would have been closed for:"
+              printf '%s\n' "$why" | sed 's/^/    /'
+              return 0
+            fi
             gh pr comment "$pr" --repo "$REPO" --body "$why" || \
               echo "::warning::could not comment on #${pr} - closing it anyway"
             if gh pr close "$pr" --repo "$REPO"; then
@@ -721,6 +790,25 @@ jobs:
             printf '%s' "$out"
           }
 
+          # [PANYA 20260909_1638 / COO-ORDER 1640 item 3] Same predicate as the
+          # `decide` job's, deliberately duplicated rather than shared: these
+          # scripts share no file, and a copy readable where it is used is what
+          # the header of this workflow asks for.  TITLE ONLY - see the PF_HOLD_*
+          # block at the top of this file for why a body match would be a trap.
+          on_hold() {
+            local n="$1" title="$2" t
+            for t in ${PF_HOLD_LANE_TAGS}; do
+              case "$title" in *"$t"*) return 0 ;; esac
+            done
+            for t in ${PF_HOLD_PR_NUMBERS}; do
+              if [ "$n" = "$t" ]; then return 0; fi
+            done
+            if [ -n "${PF_HOLD_WORD}" ]; then
+              case "$title" in *"${PF_HOLD_WORD}"*) return 0 ;; esac
+            fi
+            return 1
+          }
+
           NOW=$(date -u +%s)
           LIMIT=$(( PF_STALE_HOURS * 3600 ))
           LIMIT2=$(( PF_STALE_MINUTES * 60 ))
@@ -738,9 +826,25 @@ jobs:
             BODY=$(printf '%s' "$META"      | jq -r '.body // ""')
             CREATED=$(printf '%s' "$META"   | jq -r '.created_at')
             DRAFT=$(printf '%s' "$META"     | jq -r '.draft')
+            TITLE=$(printf '%s' "$META"     | jq -r '.title // ""')
 
             [ "$HEAD_REPO" = "$REPO" ] || continue
             [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || continue
+            # [PANYA 20260909_1638 / COO-ORDER 1640 item 3] Decide the hold ONCE
+            # per pull request, here.  A held DRAFT leaves immediately: every
+            # path below it is `gh pr ready` or the close, and the order forbids
+            # both, so there is nothing left for this job to do with it.  A held
+            # pull request that is READY does NOT leave here - it walks the
+            # ordinary gate-verdict path and can still merge; only the close at
+            # the end of that path reads $HELD.
+            HELD=no
+            if on_hold "$PR" "$TITLE"; then
+              HELD=yes
+              if [ "$DRAFT" = "true" ]; then
+                echo "--- #${PR} ${HEAD_REF}: HELD (owner's 20260909_1638 pause) - draft left exactly as it is: not readied, not closed"
+                continue
+              fi
+            fi
             # [COO-DECISION 20260905_0847 item 4, option (a); chief round pv4zg1]
             # A head that is not `claude/*` is invisible to `decide`, `finish`
             # and this reaper, marker or no marker.  The gate stays exactly as
@@ -969,6 +1073,14 @@ jobs:
               echo "  past the liveness reprieve's own absolute bound ($(( LIVENESS_ABSOLUTE_LIMIT / 3600 ))h) - closing regardless of recent activity"
             fi
 
+            # [PANYA 20260909_1638 / COO-ORDER 1640 item 3] The only close this
+            # job has.  A held pull request stops here with its reason printed,
+            # so the log still says what would have happened.
+            if [ "$HELD" = "yes" ]; then
+              echo "--- #${PR} ${HEAD_REF}: HELD (owner's 20260909_1638 pause) - left open, NOT closed. The reason it would have been closed for:"
+              printf '%s\n' "$REASON" | sed 's/^/    /'
+              continue
+            fi
             gh pr comment "$PR" --repo "$REPO" --body "$REASON" || \
               echo "::warning::could not comment on #${PR} - closing it anyway"
             if gh pr close "$PR" --repo "$REPO"; then
