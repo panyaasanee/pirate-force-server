@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_scene_travel
+from pirateforce_foundation.lane_hooks import lane_a_scene_census
 from pirateforce_foundation.population import SCENE_SEQUENCE
 from pirateforce_foundation.world_scene_travel import (
     CENSUS_SOURCE,
@@ -825,10 +826,42 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
     Strikethrough is the house's own convention for "this was true and is
     not"; a deleted sentence loses the record of who believed what, and a
     left-standing one is a comment that lies.
+
+    WIDENED round ynfhoc (LANE-A), pf-adversary addendum on the sibling
+    branch (B3): this used to read ONLY ``world_scene_travel.py`` and check
+    ONLY the literal string ``"login_entry_allowed: false"``.  Two more
+    places carry the exact same class of false claim and this check could
+    not see either of them: the registry's own pin file (prose ``status``
+    fields say things about a door the ``login_entry_allowed`` COLUMN right
+    beside them already contradicts) and ``lane_hooks/lane_a_scene_census.py``
+    (whose own admission-arm comments repeat the same "this scene's door is
+    shut" claim the arms exist to work around).  Both are added below,
+    scanned by the same struck-span-aware logic, so a scene reopened by a
+    future round is caught in all three files at once instead of one.
     """
 
-    SOURCE = Path(world_scene_travel.__file__).read_text(encoding="utf-8")
-    CLAIM = "login_entry_allowed: false"
+    TRAVEL_SOURCE = Path(world_scene_travel.__file__).read_text(
+        encoding="utf-8")
+    CENSUS_SOURCE = Path(lane_a_scene_census.__file__).read_text(
+        encoding="utf-8")
+    REGISTRY_SOURCE = Path(world_scene_travel.REGISTRY_PATH).read_text(
+        encoding="utf-8")
+
+    # Every regex below is matched case-insensitively.  Each one is a form
+    # this codebase has actually been caught writing (see the pf-adversary
+    # addendum this round), not a hypothetical.
+    DOOR_SHUT_PATTERNS = (
+        # Field-literal form: "login_entry_allowed: false", tolerant of the
+        # line wrap and comment-hash a ``# ...`` continuation inserts
+        # between the colon and the word (measured: this exact break
+        # occurs twice in lane_a_scene_census.py and would otherwise dodge
+        # a plain substring check).
+        re.compile(r"login_entry_allowed\s*:?[\s#]*false", re.IGNORECASE),
+        # Prose forms naming the same fact without the field syntax.
+        re.compile(r"ordinary login (?:path )?(?:still )?refuses",
+                    re.IGNORECASE),
+        re.compile(r"login door is shut", re.IGNORECASE),
+    )
 
     @staticmethod
     def _struck_spans(source):
@@ -844,24 +877,95 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
                 "span below would be off by one")
         return [(marks[i], marks[i + 1]) for i in range(0, len(marks), 2)]
 
+    # A door-shut claim that is only describing the FLIP itself ("FALSE ->
+    # TRUE by PANYA-DECISION ...") is history, correctly stated, not a
+    # claim the door is currently shut - measured: this exact shape
+    # ("login_entry_allowed FALSE -> TRUE") appears four times in the
+    # shipped registry as the "DOOR OPENED" sentence LANE-A round 9lv3fa
+    # added, and none of the four is a stale claim.
+    _DESCRIBES_A_FLIP = re.compile(r"\s*->\s*true", re.IGNORECASE)
+    # A claim explicitly framed as "READ AT THE TIME" is ALREADY a past-
+    # tense, historical statement, not a present-tense one - measured: scene
+    # 4's own paragraph in world_scene_travel.py was already corrected this
+    # way (round 949y62, striking "still reads" and inserting this phrase)
+    # and a literal-string check cannot tell tense apart from the field name
+    # it is quoting, so this is checked explicitly rather than re-flagging
+    # an already-fixed sentence.
+    _DESCRIBES_THE_PAST = re.compile(r"at the time\s*[`\"']*\s*$",
+                                      re.IGNORECASE)
+
     @classmethod
-    def _offenders(cls, source, open_doors):
+    def _named_scenes_by_prose(cls, window):
+        """``scene 126`` / ``Scene 126`` - the two .py files' own style."""
+        return {int(n) for n in re.findall(r"[Ss]cene (\d+)", window)}
+
+    @classmethod
+    def _named_scene_by_n_id(cls, source, at):
+        """Which destination a JSON claim is about.
+
+        PREFERS AN EXPLICIT ``scene N`` MENTION close before the match,
+        because this registry's narrative fields routinely discuss ANOTHER
+        scene for comparison from inside a destination's own object -
+        measured: destination 997's own status text quotes "scene 14 is
+        pinned with login_entry_allowed FALSE" verbatim, and attributing
+        that to 997 (its container) rather than 14 (who the sentence is
+        actually about) would be exactly the misattribution this docstring
+        warns about.
+
+        THE "OTHER" WORD WINS OVER AN EXPLICIT NUMBER, CHECKED FIRST AND IN
+        A WIDE ENOUGH WINDOW TO REACH ONE - a real, observed shape in this
+        registry names the scene that opened ("Scene 4 ... is the first of
+        these ten to open ...") in the SAME sentence group as a claim about
+        every OTHER one of the ten ("the other nine are UNCHANGED ... still
+        carry login_entry_allowed false").  A narrow window that only
+        checked for "other" right next to the match would miss that the
+        explicit "scene 4" a few dozen characters earlier belongs to the
+        PREVIOUS clause, not this one - so "other" is checked in the SAME
+        150-character window used for the explicit-number search, and wins
+        when both are present, rather than letting an antecedent "scene N"
+        from an unrelated clause outrank it.
+
+        FALLS BACK to the nearest preceding ``"n_id": N`` - a claim written
+        as "this scene" (no explicit number, no "other") means its own
+        container.
+        """
+        window = source[max(0, at - 150):at]
+        if re.search(r"\bother\b", window, re.IGNORECASE):
+            return set()
+        explicit = {int(n) for n in re.findall(r"[Ss]cene (\d+)", window)}
+        if explicit:
+            return explicit
+        matches = list(re.finditer(r'"n_id"\s*:\s*(\d+)', source[:at]))
+        if not matches:
+            return set()
+        return {int(matches[-1].group(1))}
+
+    @classmethod
+    def _offenders(cls, source, open_doors, *, attribute_by_n_id):
         """Lines carrying an unstruck claim about a scene that is OPEN."""
         spans = cls._struck_spans(source)
-        lowered = source.lower()
         found = []
-        at = lowered.find(cls.CLAIM)
-        while at != -1:
-            if not any(lo < at < hi for lo, hi in spans):
-                # Which scene is the claim ABOUT?  The comment paragraph it
-                # sits in names it, so read backwards rather than guessing
-                # from the whole file.
-                window = source[max(0, at - 900):at]
-                named = {int(n) for n in re.findall(r"scene (\d+)", window)}
+        for pattern in cls.DOOR_SHUT_PATTERNS:
+            for match in pattern.finditer(source):
+                at = match.start()
+                if any(lo < at < hi for lo, hi in spans):
+                    continue
+                tail = source[match.end():match.end() + 12]
+                if cls._DESCRIBES_A_FLIP.match(tail):
+                    continue
+                head = source[max(0, at - 40):at]
+                if cls._DESCRIBES_THE_PAST.search(head):
+                    continue
+                if attribute_by_n_id:
+                    named = cls._named_scene_by_n_id(source, at)
+                else:
+                    window = source[max(0, at - 900):at]
+                    named = cls._named_scenes_by_prose(window)
                 wrong = sorted(named & open_doors)
                 if wrong:
-                    found.append((source.count("\n", 0, at) + 1, wrong))
-            at = lowered.find(cls.CLAIM, at + 1)
+                    found.append(
+                        (source.count("\n", 0, at) + 1, wrong,
+                         match.group(0)))
         return found
 
     def test_no_unstruck_comment_says_a_door_the_registry_opened_is_shut(self):
@@ -870,12 +974,22 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
             d.n_id for d in registry.destinations if d.login_entry_allowed
         }
         self.assertTrue(open_doors, "no door is open, so this proves nothing")
-        self.assertEqual(
-            self._offenders(self.SOURCE, open_doors), [],
-            "these lines of world_scene_travel.py say a login door is shut "
-            "for a scene this registry has OPEN. Strike them (~~...~~) "
-            "rather than deleting them - the record of who believed what is "
-            "the point of the convention.")
+        for label, source, by_n_id in (
+            ("world_scene_travel.py", self.TRAVEL_SOURCE, False),
+            ("lane_hooks/lane_a_scene_census.py", self.CENSUS_SOURCE, False),
+            ("scenarios/world_scene_registry_001.json",
+             self.REGISTRY_SOURCE, True),
+        ):
+            with self.subTest(file=label):
+                self.assertEqual(
+                    self._offenders(source, open_doors,
+                                     attribute_by_n_id=by_n_id),
+                    [],
+                    "these lines of %s say a login door is shut for a "
+                    "scene this registry has OPEN. Strike them (~~...~~) "
+                    "rather than deleting them - the record of who "
+                    "believed what is the point of the convention."
+                    % (label,))
 
     def test_a_sentence_about_a_door_that_is_really_shut_is_left_alone(self):
         """The case above must not become a blanket ban on the string.
@@ -890,11 +1004,14 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
             "# ``login_entry_allowed: false`` and nothing here changes it.\n"
         )
         self.assertEqual(
-            self._offenders(true_sentence, {1, 2, 17}), [],
+            self._offenders(true_sentence, {1, 2, 17},
+                             attribute_by_n_id=False),
+            [],
             "a TRUE unstruck sentence about a genuinely shut scene was "
             "reported as a defect")
         self.assertEqual(
-            [line for line, _ in self._offenders(true_sentence, {4242})],
+            [line for line, _, _ in self._offenders(
+                true_sentence, {4242}, attribute_by_n_id=False)],
             [2],
             "the same sentence about a scene that is OPEN must be reported")
 
@@ -905,6 +1022,86 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
         """
         with self.assertRaises(AssertionError):
             self._struck_spans("# ~~one marker only\n")
+
+
+class NoCommentClaimsAStaleRosterFactForScene17(unittest.TestCase):
+    """pf-adversary addendum on the sibling branch (B3), one specific claim
+    the door-shape check above cannot see because it is not about a door:
+    scene 17's registry ``status`` field says (as of the round that wrote
+    it) that ``world_population_handoff.ROSTER_COMPOSERS`` has no entry for
+    ``bg1001_roster`` and that ``PENDING_CROSSING_SAFETY_REVIEW`` still
+    names it.  Both are checked live against the module rather than assumed
+    stale, so this stays true the day either one is reverted.
+    """
+
+    def test_scene_17_roster_composer_claim_matches_the_module(self):
+        from pirateforce_foundation import world_population_handoff
+
+        registry_text = Path(world_scene_travel.REGISTRY_PATH).read_text(
+            encoding="utf-8")
+        registered = "bg1001_roster" in world_population_handoff.ROSTER_COMPOSERS
+        still_pending = (
+            "bg1001_roster" in world_population_handoff
+            .PENDING_CROSSING_SAFETY_REVIEW
+        )
+        if not (registered and not still_pending):
+            return  # Nothing to check against - the module state reverted.
+        claim = "ROSTER_COMPOSERS deliberately has no entry"
+        spans = NoCommentClaimsADoorThisRegistryOpened._struck_spans(
+            registry_text)
+        at = registry_text.find(claim)
+        while at != -1:
+            struck = any(lo < at < hi for lo, hi in spans)
+            self.assertTrue(
+                struck,
+                "scene 17's status field still claims (unstruck) that "
+                "ROSTER_COMPOSERS has no bg1001_roster entry, but the "
+                "module registers one and PENDING_CROSSING_SAFETY_REVIEW "
+                "no longer names it - the claim is stale.")
+            at = registry_text.find(claim, at + 1)
+
+
+class Scene304And305DoNotCarryADuplicateDoorClaim(unittest.TestCase):
+    """pf-adversary addendum on the sibling branch (B3): scenes 304 and 305
+    each had a claim about their own login door struck once, correctly -
+    and then the SAME field went on to state the unstruck claim again
+    later in the same string, contradicting its own already-struck and
+    corrected sentence a few hundred characters earlier.  A reader who
+    stopped at the second occurrence would believe the door was shut again.
+    """
+
+    def test_no_status_field_repeats_an_already_struck_door_claim(self):
+        data = json.loads(
+            Path(world_scene_travel.REGISTRY_PATH).read_text(
+                encoding="utf-8"))
+        registry = world_scene_travel.load_scene_registry()
+        open_doors = {
+            d.n_id for d in registry.destinations if d.login_entry_allowed
+        }
+        pattern = re.compile(
+            r"login_entry_allowed\s*:?[\s#]*false", re.IGNORECASE)
+        for row in data["destinations"]:
+            if row["n_id"] not in open_doors:
+                continue
+            status = row.get("status", "")
+            if not status:
+                continue
+            spans = (
+                NoCommentClaimsADoorThisRegistryOpened._struck_spans(status)
+            )
+            flip = NoCommentClaimsADoorThisRegistryOpened._DESCRIBES_A_FLIP
+            unstruck = [
+                m for m in pattern.finditer(status)
+                if not any(lo < m.start() < hi for lo, hi in spans)
+                and not flip.match(status[m.end():m.end() + 12])
+            ]
+            self.assertEqual(
+                unstruck, [],
+                "scene %s's status field repeats an unstruck door-shut "
+                "claim (possibly a duplicate of an already-struck one "
+                "earlier in the same field) for a scene this registry has "
+                "OPEN: %r" % (
+                    row["n_id"], [m.group(0) for m in unstruck]))
 
 
 class ReturnTicketTests(unittest.TestCase):

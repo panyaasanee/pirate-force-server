@@ -568,10 +568,11 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
         for x, y, z in bad:
             for via_login in (True, False):
                 with self.subTest(xyz=(x, y, z), via_login=via_login):
+                    lines = []
                     entry = world_scene_entry.resolve_entry(
                         Position(home.n_id, 0, x, y, z),
                         registry=self.registry,
-                        emit=lambda line: None,
+                        emit=lines.append,
                         via_login=via_login,
                     )
                     self.assertTrue(entry.relocated)
@@ -581,6 +582,17 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                     self.assertEqual(
                         (entry.position.x, entry.position.y, entry.position.z),
                         home.spawn)
+                    # ADDED round ynfhoc (LANE-A), pf-adversary addendum on
+                    # this same branch (A2): a real home relocation used to
+                    # go unreported (`emit=lambda line: None` above hid it,
+                    # and the home arm itself skipped the shared "second
+                    # line" gate entirely).  Both are fixed now - assert the
+                    # console actually says so.
+                    self.assertTrue(
+                        any(line.startswith("WORLD_SCENE_RELOCATED")
+                            for line in lines),
+                        "home relocated (row was not finite) and no "
+                        "console line said so: %r" % (lines,))
 
     def test_a_row_the_float32_encoder_would_refuse_is_not_a_place(self):
         """pf-adversary D6 of round ``sbqohw``: being a number is not enough.
@@ -615,10 +627,11 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                 for via_login in (True, False):
                     with self.subTest(scene=destination.n_id, xyz=(x, y, z),
                                       via_login=via_login):
+                        lines = []
                         entry = world_scene_entry.resolve_entry(
                             Position(destination.n_id, 0, x, y, z),
                             registry=self.registry,
-                            emit=lambda line: None,
+                            emit=lines.append,
                             via_login=via_login,
                         )
                         self.assertTrue(entry.relocated)
@@ -629,6 +642,17 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                             (entry.position.x, entry.position.y,
                              entry.position.z),
                             destination.spawn)
+                        # ADDED round ynfhoc (LANE-A), pf-adversary addendum
+                        # on this same branch (A2): this loop includes home
+                        # (see the `openable` filter above), and a relocated
+                        # home row must be reported exactly like every other
+                        # destination's is.
+                        if destination.n_id == world_scene_entry.HOME_SCENE_ID:
+                            self.assertTrue(
+                                any(line.startswith("WORLD_SCENE_RELOCATED")
+                                    for line in lines),
+                                "home relocated (row outside float32) and "
+                                "no console line said so: %r" % (lines,))
 
     def test_every_arrival_this_module_returns_packs_as_a_float32(self):
         """The two cases above name the two holes; this one states the
@@ -799,6 +823,41 @@ class TheRuleOverTheWholeRegistry(unittest.TestCase):
                         registry=self.registry,
                         emit=lambda line: None, via_login=True).relocated,
                     "the y half of the envelope is not pinned from above")
+            # ADDED round ynfhoc (LANE-A), pf-adversary addendum on this same
+            # branch (A3): every case above drives ONLY the positive side of
+            # each axis (`centre + extent`).  `_measured_envelope_refutes`
+            # compares with `abs(x - centre) <= extent_x`, and a mutant that
+            # drops both `abs()` calls survives the whole suite unnoticed,
+            # because the resulting one-sided `(x - centre) <= extent_x`
+            # comparison still reads TRUE ("inside") for any large NEGATIVE
+            # offset - a row on the negative side, however far outside the
+            # box, would be silently KEPT under that mutant instead of
+            # relocated.  These two subtests drive `centre - extent - margin`
+            # (negative x, just outside) and `centre_y - extent_y - margin`
+            # (negative y, just outside) and require the row be refuted, so
+            # dropping either `abs()` turns one of them red.
+            with self.subTest(scene=destination.n_id, side="x_negative"):
+                self.assertTrue(
+                    world_scene_entry.resolve_entry(
+                        Position(destination.n_id, scene_seq,
+                                 centre_x - extent_x - margin, centre_y, 0.0),
+                        registry=self.registry,
+                        emit=lambda line: None, via_login=True).relocated,
+                    "a row %.3f units below the box centre on x, OUTSIDE the "
+                    "envelope this module declares, was kept - the negative "
+                    "side of the x envelope is not pinned"
+                    % (extent_x + margin,))
+            with self.subTest(scene=destination.n_id, side="y_negative"):
+                self.assertTrue(
+                    world_scene_entry.resolve_entry(
+                        Position(destination.n_id, scene_seq,
+                                 centre_x, centre_y - extent_y - margin, 0.0),
+                        registry=self.registry,
+                        emit=lambda line: None, via_login=True).relocated,
+                    "a row %.3f units below the box centre on y, OUTSIDE the "
+                    "envelope this module declares, was kept - the negative "
+                    "side of the y envelope is not pinned"
+                    % (extent_y + margin,))
 
     def test_a_kept_row_carries_the_destinations_scene_seq_not_the_rows(self):
         """pf-adversary D8 of round ``sbqohw``: the kept arms build their

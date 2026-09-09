@@ -71,15 +71,25 @@ believing it delivers them.
 WHAT DECIDES WHETHER A STORED POSITION IS KEPT OR REPLACED.  Two rules, and
 the first one is the important one:
 
-1. **Home is never touched.**  Scene 1 is the only scene a character in this
-   project has ever stood in, walked around and been persisted in.  A player
-   who logged out beside the tavern comes back beside the tavern (and since
+1. **Home is (almost) never touched.**  CORRECTED round ynfhoc (LANE-A),
+   pf-adversary addendum: this used to say "Home is never touched" flatly,
+   and that stopped being true the round the wire-refusal arm (see
+   ``_wire_refusal``) was widened to cover home as well as every other
+   destination.  Scene 1 is the only scene a character in this project has
+   ever stood in, walked around and been persisted in, and a player who
+   logged out beside the tavern comes back beside the tavern (and since
    round ``ioz8fd`` so does one who logged out at sea - see
-   ``_ground_refutes_stored_row``; before it, only home kept a row), exactly as
-   today, and the teleport arguments stay ``(1, 0, 0.0, 0.0, 0.0)`` -
-   argument for argument what the runtime sends now.  That zero target is the
-   shape every default boot here has been observed to survive, so home's
-   teleport is the one place the position is deliberately NOT used.
+   ``_ground_refutes_stored_row``; before it, only home kept a row) for
+   every ORDINARY row.  The one exception: a home row that is not a finite
+   number, or is outside the float32 range the wire can carry, is relocated
+   to the pinned entry position exactly like any other destination's
+   unencodable row would be, and that relocation is emitted (see
+   ``resolve_entry``, the ``target.n_id == HOME_SCENE_ID and moved`` line).
+   For every row that survives that check, the teleport arguments stay
+   ``(1, 0, 0.0, 0.0, 0.0)`` - argument for argument what the runtime sends
+   now.  That zero target is the shape every default boot here has been
+   observed to survive, so home's teleport is the one place the position is
+   deliberately NOT used, for a coherent (finite, in-range) row.
    CHARTER-02's cumulative rule says a version that takes away what the last
    one could do is damage, and this is that rule at its smallest scale.
 
@@ -205,14 +215,41 @@ RELOCATED_ROW_NOT_FINITE = "stored_xy_not_a_finite_number"
 # ADDED round 949y62 (LANE-A), pf-adversary D6 of round sbqohw, MEASURED:
 # `3.5e38` is FINITE, so the check above lets it through, and it is OUTSIDE
 # float32, so `struct.pack("<f", ...)` raises `OverflowError` in the encoder
-# that puts this row on the wire.  `player_wire._resolve_login_movement_speed`
-# already spells out why that is worse than a wrong number: OverflowError
-# subclasses ArithmeticError, which none of the four handlers guarding these
-# composers catches (runtime.py 3387 / 8093 / 8419 catch ValueError,
-# RuntimeError, TypeError), so an uncaught one unwinds the listener thread --
-# and the row that produced it is durable, so it does it again on the next
-# login, forever.  The rule on this path is the FLOAT32 rule, not
-# `math.isfinite`, for the same reason it is the float32 rule over there.
+# that puts this row on the wire.  The row that produced it is durable, so
+# it does it again on the next login, forever.  The rule on this path is
+# the FLOAT32 rule, not `math.isfinite`, for the same reason it is the
+# float32 rule over there.
+#
+# CORRECTED round ynfhoc (LANE-A), pf-adversary addendum on this same
+# branch: the paragraph used to cite runtime.py 3387/8093/8419 as
+# ValueError/RuntimeError/TypeError handlers that would catch this -- that
+# was COPIED from player_wire.py's own (already-stale) citation rather than
+# re-derived, and re-deriving it this round finds none of the three lines
+# is an `except` clause any more (`grep -n "except" runtime.py` was used to
+# check).  More to the point, IT DOES NOT MATTER WHICH LINES THOSE ARE,
+# because this guard cannot reach the ordinary flagless login path at all:
+# `session.select_and_start` (called at runtime.py ~10483, the FIRST thing
+# the START_GAME_REQ handler does) composes the actual ActorAttr/
+# MovementAttr frame straight from `character.position` via
+# `legacy_bridge.LegacyProjector.start_game`/`movement_attr`, which calls
+# `f32tag`/`struct.pack("<f", ...)` on that row directly and unconditionally
+# -- runtime.py's own comment at the resync block below says so in as many
+# words ("pc/frame were already composed above by select_and_start() ...
+# FROM THE CHARACTER'S REAL STORED ROW -- entirely before this override was
+# even computed").  Both calls to `world_scene_entry.resolve_entry` (this
+# module's `_wire_refusal` below) happen AFTER that, at runtime.py
+# ~10846/~10929, and are wrapped only in `(KeyError, PermissionError)` /
+# `(ValueError, RuntimeError)` at the `select_and_start` call site itself --
+# no `OverflowError`.  So on an ordinary login a bad row already raised and
+# unwound the listener thread before this guard was ever consulted.  The
+# ONLY frame this guard's answer (`entry.position`) ever feeds is the
+# teleport packet (always) and a SECOND ActorAttr/MovementAttr resync built
+# from `entry.position` -- but that resync only runs `if login_scene_override
+# is not None` (runtime.py ~11021), i.e. only on a GM login-scene override,
+# not on an ordinary boot.  The gap on the ordinary path is real, open, and
+# is a CORE-REQUEST to chief this round (guard must move upstream of
+# `select_and_start`, or `select_and_start` must call it first) -- see
+# `notes_to_chief/`.
 RELOCATED_ROW_OUTSIDE_FLOAT32 = "stored_xy_outside_float32_range"
 
 # THE RETURN TICKET, AND WHY IT OVERWRITES A ROW THE OWNER SAID TO KEEP.
@@ -234,8 +271,12 @@ RELOCATED_ROW_OUTSIDE_FLOAT32 = "stored_xy_outside_float32_range"
 # the swap inside ``resolve_entry``, 11 cases of
 # ``tests/test_world_scene_registry_login_door.py`` go red, because that file
 # is where 1218 itself is pinned ("a login resolves at the scene the row
-# names") and scene 17 is the only destination carrying a measured ground box,
-# so three of those cases are built on it and cannot be moved elsewhere.
+# names") and scene 17 is one of the two destinations carrying a measured
+# ground box (CORRECTED round ynfhoc, LANE-A: the shipped registry's
+# measured pair is `[17, 278]`, re-derived by grepping
+# `scenarios/world_scene_registry_001.json` for `"ground": {` -- see
+# `_measured_envelope_refutes` ~60 lines below, which already names both),
+# so three of those cases are built on 17 and cannot be moved elsewhere.
 # Which SCENE a login resolves at is a second decision layered on the first,
 # not a clause inside it.  This constant lives here, next to the other
 # relocation reasons, because it names the same kind of thing they do; it is
@@ -534,11 +575,25 @@ def _wire_refusal(row: Position) -> str | None:
          inside the encoder - see ``RELOCATED_ROW_OUTSIDE_FLOAT32`` for why
          that is a dead listener thread rather than a bad landing.
 
-    NOT a rounding check.  A coordinate that survives the range test but
-    loses precision as a float32 is a slightly wrong place, which the next
-    client report corrects; that is a different (and much smaller) problem
-    than a place that does not exist, and conflating them would relocate
-    characters who are standing exactly where they should be.
+    NOT MEANT AS a rounding check, and mostly is not one - but CORRECTED
+    round ynfhoc (LANE-A): it admits exactly one, in a real and measured
+    band.  ``struct.pack("<f", ...)`` does not raise until its input exceeds
+    ``3.4028235677973362e38`` (verified this round with
+    ``python3 -c "import struct; struct.pack('<f', 3.4028235677973362e38)"``
+    - it packs; the true encoder ROUNDS a value in
+    ``(_F32_MAX, 3.4028235677973362e38]`` down to the nearest float32
+    instead of refusing it), while ``_F32_MAX`` above is set to
+    ``3.4028234663852886e38`` - the exact max float32, not the true raise
+    threshold.  A coordinate in that ~1e31-wide gap is therefore something
+    the real encoder would happily round, and this guard relocates it
+    anyway, as if it were unencodable.  The rest of the claim still holds: a
+    coordinate that loses precision as a float32 BELOW ``_F32_MAX`` is a
+    slightly wrong place, which the next client report corrects, and that is
+    a different (and much smaller) problem than a place that does not
+    exist - conflating those would relocate characters who are standing
+    exactly where they should be.  The gap band above ``_F32_MAX`` is not
+    that case; it is this guard being one ULP-scale step stricter than the
+    encoder it is guarding, on purpose, for a margin nobody has needed yet.
     """
     if not _row_is_finite(row):
         return RELOCATED_ROW_NOT_FINITE
@@ -553,11 +608,30 @@ def _wire_safe_heading(heading: float) -> float:
 
     The docstring above says a bad heading is a smaller problem than a bad
     coordinate, and that is still true of a WRONG heading.  It is not true
-    of a heading the encoder cannot carry: ``f32tag`` packs the heading with
-    the same ``struct.pack("<f", ...)`` that raises on the coordinates, so a
-    NaN or ``3.5e38`` heading unwinds the same listener thread - and it does
-    it even on the relocation arms, which hand ``row.heading`` straight back
-    to ``entry_position``.
+    of a heading whose MAGNITUDE the encoder cannot carry: ``f32tag`` packs
+    the heading with the same ``struct.pack("<f", ...)`` that raises on the
+    coordinates, so a ``3.5e38`` heading unwinds the same listener thread -
+    and it does it even on the relocation arms, which hand ``row.heading``
+    straight back to ``entry_position``.
+
+    CORRECTED round ynfhoc (LANE-A): NaN is not in that set.  Verified this
+    round with ``python3 -c 'import struct; struct.pack("<f", float("nan"))'``
+    - it returns ``b"\x00\x00\xc0\x7f"`` and does not raise; the same is true
+    of ``+/-inf``.  Only the out-of-float32-range magnitude case raises, which
+    is why the range check below is the load-bearing one and the finite
+    check above it exists for the coordinates, not for this.
+
+    ALSO CORRECTED round ynfhoc: this sanitised heading does not reach
+    ``legacy.make_login_teleport`` at all - re-derived from
+    ``current/pf_login_game_server_v141.py``, whose signature is
+    ``make_login_teleport(scene_id, scene_seq, x, y, z)`` with no heading
+    parameter, and ``world_scene_entry._teleport_from`` above only ever
+    passes those five.  What this sanitised value DOES reach is
+    ``legacy_bridge.LegacyProjector.movement_attr`` (``f32tag(p.heading)``),
+    called from ``start_game`` for both the ordinary ``select_and_start``
+    frame and the GM-override resync frame - a different encoder from the
+    teleport packet, and the one this function's own module docstring
+    "biggest trap" paragraph is not about.
 
     Replaced rather than relocated: 0.0 is the documented entry default
     (``world_scene_travel.entry_position``), the character still lands where
@@ -800,12 +874,33 @@ def resolve_entry(
     raises ``REFUSED_NOT_ALLOWED_AT_LOGIN`` here UNLESS the caller explicitly
     passes ``via_login=False``, meaning "this call is not reading a
     character's own persisted position row" - which is exactly what
-    ``columbus_quest_dispatch.resolve_columbus_arrival``'s synthetic call is,
-    and the only caller in this tree that passes it today.  Passing
-    ``via_login=False`` does not weaken the check for any other destination:
-    every pre-existing pin (1, 2, 278, 997) has no ``login_entry_allowed``
-    field at all and defaults True, so this changes nothing for them either
-    way.
+    ``columbus_quest_dispatch.resolve_columbus_arrival``'s synthetic call is.
+
+    CORRECTED round ynfhoc (LANE-A): that used to say this was "the only
+    caller in this tree that passes it today".  Re-derived this round with
+    ``grep -rn "via_login" src/`` and it is not - there are three more:
+
+    * ``world_m2_arrival._resolve_through_the_door`` passes a literal
+      ``via_login=False`` too, on a synthetic row built the same way
+      Columbus's is (not a character's persisted position).
+    * ``runtime.py:10850`` and ``runtime.py:10929`` (the GM login-scene
+      override probe and the real login call right after it) both pass
+      ``via_login=not gm_sanctioned_bypass`` / ``via_login=not
+      (gm_sanctioned_bypass and login_scene_override is not None)`` -
+      expressions that evaluate to ``False`` only when a GM-consumed
+      override targets a sanctioned-barred scene (CORE-REQUEST-GM-038).
+      Unlike Columbus and the M2 door, the row those two pass IS built from
+      the character's own durable coordinates (``replace(login_row,
+      scene_id=login_scene_override)`` - only the scene id is substituted),
+      so "this call is not reading a character's own persisted position
+      row" is not quite what they mean either; they mean "this call is
+      GM-sanctioned to bypass the door for this one scene", a narrower
+      thing than Columbus's synthetic-row case.
+
+    Passing ``via_login=False`` does not weaken the check for any other
+    destination: every pre-existing pin (1, 2, 278, 997) has no
+    ``login_entry_allowed`` field at all and defaults True, so this changes
+    nothing for them either way.
 
     Refusals: a row this tree cannot compose an arrival for raises
     ``SceneEntryRefused`` - read that class before deciding what to do with
@@ -921,10 +1016,31 @@ def resolve_entry(
         # Nothing was overridden, so nothing is reported as overridden.
         reason = None
 
+    # HOME'S OWN RELOCATION LINE.  CORRECTED round ynfhoc (LANE-A),
+    # pf-adversary addendum on this same branch (A2): the paragraph that
+    # used to stand where this comment now is said "Home never gets one:
+    # there the row IS the position, byte for byte" and the section header
+    # below still said "Home is never touched" - both were TRUE before the
+    # `_wire_refusal` arm above was widened (pf-adversary D5 of round
+    # sbqohw) to cover home too, and FALSE the moment it was: a home row
+    # that is not finite, or outside float32 range, now takes
+    # `world_scene_travel.entry_position(target, heading)` instead of the
+    # stored row, `moved` is True, and `reason` is one of
+    # `RELOCATION_REASONS`.  The module's own docstring requires every
+    # replacement to be emitted, not silently substituted, so that has to
+    # happen here rather than falling through to the gate below - which
+    # excludes home on purpose for the ordinary (never-relocates) case and
+    # would otherwise keep this one silent too.
+    if target.n_id == HOME_SCENE_ID and moved:
+        lines.append(_relocated_line(target, row, position, reason))
+
     # The second line, when the row and the arrival are not the same thing.
-    # Home never gets one: there the row IS the position, byte for byte, and
-    # an extra line on every normal boot would be noise around the one line
-    # the ticket pins.
+    # Home never gets one THROUGH THIS GATE: away from the wire-refusal arm
+    # just above, the row IS the position, byte for byte, and an extra line
+    # on every normal boot would be noise around the one line the ticket
+    # pins.  "Home is never touched" is therefore no longer an accurate
+    # header for this module as a whole - see the block above for the one
+    # documented exception.
     if target.n_id != HOME_SCENE_ID and (
         moved
         or (position.x, position.y, position.z) != target.spawn

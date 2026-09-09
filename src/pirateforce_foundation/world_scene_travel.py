@@ -840,10 +840,29 @@ DEFAULT_LOGIN_ENTRY_ALLOWED = True
 # round 949y62, LANE-A, pf-adversary D9 of round sbqohw) precisely because a
 # character's own persisted row naming 17 was refused at the next login
 # (``world_scene_entry.resolve_entry``, ``REFUSED_NOT_ALLOWED_AT_LOGIN``).
-# THE PARAGRAPH'S CONCLUSION IS UNCHANGED AND IS NOW CARRIED BY A DIFFERENT
+# ~~THE PARAGRAPH'S CONCLUSION IS UNCHANGED AND IS NOW CARRIED BY A DIFFERENT
 # MECHANISM: the row is still not persisted as scene 17, and a login that
-# lands on one is walked home by ``world_m2_return_leg.login_entry`` -
-# and scene 17 has no known way back in-game (``n_MARKER=0``, ~~RE-077 open~~
+# lands on one is walked home by ``world_m2_return_leg.login_entry``~~ --
+# STRUCK, MEASURED FALSE, round ynfhoc (LANE-A), pf-adversary addendum on
+# this same branch (B1): BOTH halves are false today, verified this round.
+# (1) ``is_position_persist_allowed(17)`` is ``True`` on this branch --
+# PANYA-DECISION 20260908_1218 opened it along with the other five pins,
+# so a row IS now written as scene 17 (checked with a live call against
+# the loaded registry, not read off the pin file by eye). (2)
+# ``world_m2_return_leg.login_entry`` has ZERO callers anywhere in
+# ``src/`` or ``tools/`` (``grep -rn "login_entry(" src/ tools/`` returns
+# nothing but its own ``def``) -- it composes and reports, it is not wired
+# into any login path, so no character is walked anywhere by it today.
+# The gap this leaves open, right now, is real: a character whose row
+# persists as scene 17 (COO-DECISION 20260908_1218's headline case) and who
+# then logs back in resolves at scene 17 with no dispatch site anywhere in
+# this tree able to send them back out -- that is exactly the one-way-scene
+# hazard ``world_m2_return_leg`` names and does not yet close. Wiring
+# ``login_entry`` into the login call site is ``runtime.py``'s to do, per
+# COO-DECISION referenced in NOW.md, and has not landed yet as of this
+# commit.
+# STILL TRUE TODAY, UNCHANGED BY THE ABOVE: scene 17 has no known way
+# back in-game (``n_MARKER=0``, ~~RE-077 open~~
 # RE-077 closed 2026-08-26 without naming a way home - see the docstring,
 # ``return_ticket=REQUIRED`` on GT-106's own console line). Writing scene_id=17
 # today would not fix the wrong row, it would turn "wrong row" into "player

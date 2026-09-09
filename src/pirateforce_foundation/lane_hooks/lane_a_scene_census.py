@@ -290,10 +290,17 @@ _CONSOLE_LINES_OF = {
     # neither table can be true without the other for even one round - a
     # scene in one and not the other prints ``LANE_A_CENSUS_SKIPPED`` at
     # import (see ``skipped_scenes()``), and that is now testable rather
-    # than trusted.  Scene 4's registry row stays ``login_entry_allowed:
+    # than trusted.  ~~Scene 4's registry row stays ``login_entry_allowed:
     # false`` (COO-DECISION 2026-08-30T14:41+07:00), so THE ADMISSION CHECK
     # above declines every call this composer ever receives in production
-    # today - registered, never fired, exactly as scene 14's own composer
+    # today~~ -- STRUCK, MEASURED FALSE, round ynfhoc (LANE-A), pf-adversary
+    # addendum on the sibling branch (B3): scene 4 was itself the FIRST of
+    # the ten marker scenes to open (this file's own "why_the_ten_doors_are_
+    # shut" note in scenarios/world_scene_registry_001.json, round bq4mst /
+    # COO-DECISION 20260830_1441), so its row has read
+    # ``login_entry_allowed: true`` since that round, and THE ADMISSION
+    # CHECK'S first arm has admitted this composer's calls in production
+    # ever since - registered, never fired, exactly as scene 14's own composer
     # sat for several rounds before COO-DECISION 20260829_2342 opened it.
     "bg0004_roster": lambda generation: (
         (world_population_bg0004.census_console_line(generation),)
@@ -304,9 +311,14 @@ _CONSOLE_LINES_OF = {
     # needs a row in, per "HOW A SCENE GETS ADDED" above.  Registered here
     # AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so
     # neither table can be true without the other for even one round.
-    # Scene 10's registry row stays ``login_entry_allowed: false``, so THE
+    # ~~Scene 10's registry row stays ``login_entry_allowed: false``, so THE
     # ADMISSION CHECK above declines every call this composer ever receives
-    # in production today - registered, never fired, exactly as bg0004's
+    # in production today~~ -- STRUCK, MEASURED FALSE, round ynfhoc (LANE-A),
+    # pf-adversary addendum on the sibling branch (B3): scene 10 was the
+    # SECOND of the ten marker scenes to open (round 3t75jw, same basis,
+    # same gate, per the registry's own "why_the_ten_doors_are_shut" note),
+    # so its row has read ``login_entry_allowed: true`` since that round -
+    # registered, never fired, exactly as bg0004's
     # own composer sat for a round before a later round judged it ready.
     "bg0010_roster": lambda generation: (
         (world_population_bg0010.census_console_line(generation),)

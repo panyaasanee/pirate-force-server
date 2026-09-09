@@ -371,9 +371,12 @@ def return_population_console_line(
 # `tests/test_world_scene_registry_login_door.py` red, and reading them is what
 # settled the design rather than the other way round.  That file pins 1218
 # itself -- "a login resolves at the scene the row names, for every populated
-# scene" -- and scene 17 is the only destination in the registry with a
-# measured ground box, so it is the example three of those cases are built on
-# and cannot be moved off.  A rule that rewrites which SCENE a login resolves
+# scene" -- and scene 17 is one of the two destinations in the registry with a
+# measured ground box (CORRECTED round ynfhoc, LANE-A: the pair is `[17,
+# 278]`, re-derived from `scenarios/world_scene_registry_001.json`, which
+# `world_scene_entry._measured_envelope_refutes` already knows about), so
+# scene 17 is the example three of those cases are built on and cannot be
+# moved off.  A rule that rewrites which SCENE a login resolves
 # at is a second decision layered on the first, not a clause inside it, and
 # keeping it here leaves `resolve_entry` answering exactly the question 1218
 # asks it and the console showing both answers separately.
