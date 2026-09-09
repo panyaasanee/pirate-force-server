@@ -247,7 +247,17 @@ SCENES_WITH_NO_CENSUS_COMPOSER_YET: tuple[int, ...] = ()
 # and the test below starts requiring its 37-actor census again.  Reported to
 # the owner in `notes_to_chief/20260909_1339_LANE-GM-TO-LANE-A-126-
 # unsanctioned-arm-three-eligibility.md`; a measurement, not a bill.
-SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR: tuple[int, ...] = (126,)
+#
+# ~~(126,)~~ -- THE WINDOW IS CLOSED, LANE-A round 9ic0io (2026-09-09).  Arm
+# one landed: this branch is lane A's login door, and it opens 126's registry
+# row.  The full suite is what noticed, exactly as the paragraph above said it
+# would -- the case went red with
+# `WORLD_CENSUS_LANE_SCENE126_INITIAL_37` arriving at a scene this tuple still
+# called dark, which is the failure of a pin doing its job, not a regression.
+# Emptying the tuple makes the case REQUIRE that census again rather than
+# tolerate its absence, so this is the strict direction; a scene put back here
+# is a scene someone has to argue for, same as the tuple above.
+SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR: tuple[int, ...] = ()
 
 
 class _WarpChainHarness(unittest.TestCase):

@@ -62,6 +62,8 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 SANCTIONED = 126
 BARRED_NOT_SANCTIONED = 17
@@ -242,6 +244,25 @@ class SanctionedBypassWiringTests(unittest.TestCase):
         # The letter's no-go #3 (scene 17 must refuse on every path), pinned
         # against the exact mutation that would widen the bypass: dropping
         # the is_sanctioned_barred_scene() half of the predicate.
+        # PANYA-DECISION 20260908_1218 opened every door in the shipped
+        # registry, so "a barred scene that no letter sanctions" is now a
+        # reading this case installs rather than a row it reads: the real
+        # scene 17 row, its real spawn, one boolean flipped back.  The
+        # no-go the letter states is about the PREDICATE, and the predicate
+        # is what runs here.
+        self._bend = bent.patch_disk(bent.shut_at_login(BARRED_NOT_SANCTIONED))
+        self._bend.start()
+        self.addCleanup(self._bend.stop)
+        # `setUp` built the registry the login is DRIVEN with before the
+        # bend existed, so it is rebuilt on the bent reading -- otherwise
+        # the predicate would see a shut door and the login would see the
+        # shipped open one, and the case would measure the disagreement
+        # rather than the refusal.
+        self.registry = _registry_with_sanctioned_row()
+        self.assertFalse(
+            self.registry[BARRED_NOT_SANCTIONED].login_entry_allowed,
+            "the bend did not reach the registry this login is driven with",
+        )
         self.assertFalse(
             login_scene_admission.is_sanctioned_barred_scene(
                 BARRED_NOT_SANCTIONED
@@ -340,6 +361,12 @@ class SanctionedBypassWiringTests(unittest.TestCase):
         resolve of the character's OWN stored row -- which here names
         barred scene 17 and must stay refused (no-gos #2 and #3 at once).
         """
+        # The character's OWN stored row names scene 17 and must stay
+        # refused, which since 1218 is a bent reading rather than a shipped
+        # one -- see the sibling case above for why.
+        self._bend = bent.patch_disk(bent.shut_at_login(BARRED_NOT_SANCTIONED))
+        self._bend.start()
+        self.addCleanup(self._bend.stop)
         registry = world_scene_travel.load_scene_registry()
         source = registry[BARRED_NOT_SANCTIONED]
         spawnless_sanctioned = dataclasses.replace(

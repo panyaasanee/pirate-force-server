@@ -41,6 +41,7 @@ from pirateforce_foundation import lane_hooks
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_a_scene_census,
 )  # noqa: E402
+import pf_bent_scene_registry  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
@@ -95,6 +96,24 @@ def _scenes_with_a_composer() -> tuple[int, ...]:
             continue
         scenes.append(scene_id)
     return tuple(scenes)
+
+
+# LANE-A round 9lv3fa: scene 17 is open at login since PANYA-DECISION
+# 20260908_1218 and has a registered composer, but its roster is held out of
+# `ROSTER_COMPOSERS` by a `runtime.py` invariant this lane may not change.
+# Derived, not retyped: the set below is read off the handoff table, so the
+# day scene 17 is added there this exception fails and has to be removed.
+COMPOSER_HELD_BY_A_RUNTIME_INVARIANT = 17
+# The row the bend below shuts when the shipped registry shuts nobody.  It is
+# `pf_bent_scene_registry.SEA` rather than a second literal, because that is
+# the scene the twenty-two files adopting that fixture already point at, and
+# it is a scene with a composer (see `_scenes_with_a_composer`) - bending a
+# scene with no cast would prove nothing about a cast staying home.
+BENT_SHUT_SCENE = pf_bent_scene_registry.SEA
+_ROSTER_COMPOSER_SOURCES = frozenset(
+    scene_id for scene_id, source in world_scene_travel.CENSUS_SOURCES.items()
+    if source in world_population_handoff.ROSTER_COMPOSERS
+)
 
 
 def _scenes_open_at_login() -> tuple[int, ...]:
@@ -306,6 +325,20 @@ class ArrivalTriggerFiresForEveryOpenWorldSceneTests(_ArrivalHarness):
         scenes = _scenes_open_at_login()
         # If this ever becomes empty the file above still passes vacuously.
         self.assertGreaterEqual(len(scenes), 9, scenes)
+        # THE NAMED EXCEPTION THAT USED TO SIT HERE IS GONE, round `umv5w2`.
+        # It held scene 17 out of this walk because 17's roster was
+        # deliberately absent from `world_population_handoff.ROSTER_COMPOSERS`
+        # and said so: "the moment that CORE-REQUEST lands, this exception
+        # comes out and the walk covers 17 like every other open scene."
+        # LANE-E landed it (`866182f`, "scene 17's cast sails with the
+        # crossing"), so 17 has a composer today and the exception now asserts
+        # the opposite of what is true.  Removed rather than inverted: the
+        # rule below is that EVERY open scene with a composer fires, and 17 is
+        # now simply one of them.
+        self.assertEqual(
+            (), tuple(s for s in scenes if s not in _ROSTER_COMPOSER_SOURCES),
+            "every scene open at login must have a roster composer",
+        )
         composed = {}
         for scene_id in scenes:
             with self.subTest(scene=scene_id):
@@ -334,7 +367,25 @@ class ArrivalTriggerFiresForEveryOpenWorldSceneTests(_ArrivalHarness):
         """
         shut = _scenes_with_a_composer_and_a_shut_door()
         if not shut:
-            self.skipTest("no composer sits behind a shut door today")
+            # THE SKIP THAT USED TO SIT HERE TURNED THE WINDOWS GATE RED
+            # (run 34228381462, round `sbqohw`): PANYA-DECISION 20260908_1218
+            # opened every populated scene at login, the complement went
+            # empty, and the census counted an undeclared skip.  Pinning it as
+            # a design skip was the other way out and NOW.md `2050` forbids
+            # all three of skip, xfail and allowlist - so the case stops
+            # depending on the shipped data having a shut door and bends one
+            # instead.  `pf_bent_scene_registry` flips exactly one boolean on
+            # one real row, which is the edit an operator makes between two
+            # boots, so a refusal measured against the bend is a refusal that
+            # would happen against a pin.  The walk below is unchanged; only
+            # the SOURCE of the shut door moved from the file to the bend.
+            with pf_bent_scene_registry.process_reads(
+                    pf_bent_scene_registry.shut_at_login(BENT_SHUT_SCENE)):
+                self._a_shut_door_composes_nothing((BENT_SHUT_SCENE,))
+            return
+        self._a_shut_door_composes_nothing(shut)
+
+    def _a_shut_door_composes_nothing(self, shut):
         for scene_id in shut:
             with self.subTest(scene=scene_id):
                 self.assertFalse(

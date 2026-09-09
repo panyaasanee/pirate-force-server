@@ -65,8 +65,16 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     Each arm names its own gate in its own docstring, and each is driven by
     a test that revokes that gate rather than reading it back.  What has NOT
     changed is the direction of every arm: all three fail closed, and none
-    of them opens a LOGIN door - ``login_entry_allowed`` is still false for
-    all three of those scenes.
+    of them opens a LOGIN door.  ~~``login_entry_allowed`` is still false for
+    all three of those scenes.~~ -- STRUCK ROUND 1v5i3h (pf-adversary D5 of
+    round ioz8fd).  It reads TRUE for all three today: PANYA-DECISION
+    20260908_1218 opened the ordinary login door for 17, 126, 304 and 305 and
+    LANE-A round 9lv3fa flipped the fields.  The half before the strike still
+    holds and is the load-bearing half - no ARM here opens a door; what
+    changed is that the door these three arms were built to work around is
+    open on its own, so the FIRST arm (the registry pin) now carries all
+    three of these scenes and arms 2 and 3 are no longer what stands between
+    a player and an empty ocean here.
 
 HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
 ~~SEVEN REGISTRATIONS~~ ~~NINE~~ TEN, counted round ``yob0a2`` by adding scene
@@ -282,11 +290,25 @@ _CONSOLE_LINES_OF = {
     # neither table can be true without the other for even one round - a
     # scene in one and not the other prints ``LANE_A_CENSUS_SKIPPED`` at
     # import (see ``skipped_scenes()``), and that is now testable rather
-    # than trusted.  Scene 4's registry row stays ``login_entry_allowed:
+    # than trusted.  ~~Scene 4's registry row stays ``login_entry_allowed:
     # false`` (COO-DECISION 2026-08-30T14:41+07:00), so THE ADMISSION CHECK
     # above declines every call this composer ever receives in production
-    # today - registered, never fired, exactly as scene 14's own composer
-    # sat for several rounds before COO-DECISION 20260829_2342 opened it.
+    # today~~ -- STRUCK, MEASURED FALSE, round ynfhoc (LANE-A), pf-adversary
+    # addendum on the sibling branch (B3): scene 4 was itself the FIRST of
+    # the ten marker scenes to open (this file's own "why_the_ten_doors_are_
+    # shut" note in scenarios/world_scene_registry_001.json, round bq4mst /
+    # COO-DECISION 20260830_1441), so its row has read
+    # ``login_entry_allowed: true`` since that round, and THE ADMISSION
+    # CHECK'S first arm has admitted this composer's calls in production
+    # ever since.  ~~registered, never fired, exactly as scene 14's own
+    # composer sat for several rounds before COO-DECISION 20260829_2342
+    # opened it~~ -- STRUCK, LANE-A round 9ic0io (pf-adversary A2 on round
+    # ynfhoc): that tail is the sentence the strike above REPLACED, left
+    # standing behind its own replacement, so one sentence asserted that the
+    # calls are admitted and, four words later, that they are not.  The
+    # build/wire/open split over three rounds is real and is what the ADDED
+    # note records; what is not true, and has not been since scene 4's row
+    # flipped, is that the calls are declined.
     "bg0004_roster": lambda generation: (
         (world_population_bg0004.census_console_line(generation),)
         + world_population_bg0004.actor_lines(generation)
@@ -296,10 +318,19 @@ _CONSOLE_LINES_OF = {
     # needs a row in, per "HOW A SCENE GETS ADDED" above.  Registered here
     # AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so
     # neither table can be true without the other for even one round.
-    # Scene 10's registry row stays ``login_entry_allowed: false``, so THE
+    # ~~Scene 10's registry row stays ``login_entry_allowed: false``, so THE
     # ADMISSION CHECK above declines every call this composer ever receives
-    # in production today - registered, never fired, exactly as bg0004's
-    # own composer sat for a round before a later round judged it ready.
+    # in production today~~ -- STRUCK, MEASURED FALSE, round ynfhoc (LANE-A),
+    # pf-adversary addendum on the sibling branch (B3): scene 10 was the
+    # SECOND of the ten marker scenes to open (round 3t75jw, same basis,
+    # same gate, per the registry's own "why_the_ten_doors_are_shut" note),
+    # so its row has read ``login_entry_allowed: true`` since that round,
+    # and THE ADMISSION CHECK'S first arm has admitted this composer's calls
+    # in production ever since.  ~~registered, never fired, exactly as
+    # bg0004's own composer sat for a round before a later round judged it
+    # ready~~ -- STRUCK, LANE-A round 9ic0io (pf-adversary A2 on round
+    # ynfhoc), same defect as bg0004 above and made in the same pass: the
+    # replaced sentence was left standing behind its replacement.
     "bg0010_roster": lambda generation: (
         (world_population_bg0010.census_console_line(generation),)
         + world_population_bg0010.actor_lines(generation)
@@ -443,12 +474,20 @@ _CONSOLE_LINES_OF = {
     # ADDED round vwekfq (2026-09-05, LANE-A): scene 17, the ship at sea.
     # Registered here AND in ``world_scene_travel.CENSUS_SOURCES`` in the
     # same commit, so neither table can be true without the other for even
-    # one round.  This scene's registry door stays exactly as it was
+    # one round.  ~~This scene's registry door stays exactly as it was
     # (``login_entry_allowed: false``, guarding the ordinary LOGIN path
     # only - see ``world_scene_travel``'s own comment on
     # ``SHIP_AT_SEA_SCENE_ID``), so THE ADMISSION CHECK above declines
     # every call this composer receives in production today, the same
-    # inert-until-opened shape scene 4's and scene 10's own rows carried.
+    # inert-until-opened shape scene 4's and scene 10's own rows carried.~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    #
     "bg1001_roster": lambda generation: (
         (world_population_bg1001.census_console_line(generation),)
         + world_population_bg1001.actor_lines(generation)
@@ -459,12 +498,20 @@ _CONSOLE_LINES_OF = {
     # the destinations of a crossing at scene 126's map edge.  Registered
     # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
     # so neither table can be true without the other for even one round.
-    # UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
+    # ~~UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
     # registry row still reads ``login_entry_allowed: false``, but round
     # n4vqxc's pin made a bare GM ``/warp 304`` land here live, and THE
     # THIRD ADMISSION ARM below (``scene_arrival_was_decreed_and_is_gm_
     # reachable``) admits exactly that session - so this composer answers in
-    # production the day it lands, for a GM and for nobody else.
+    # production the day it lands, for a GM and for nobody else.~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    #
     "bg3007_roster": lambda generation: (
         (world_population_bg3007.census_console_line(generation),)
         + world_population_bg3007.actor_lines(generation)
@@ -473,10 +520,18 @@ _CONSOLE_LINES_OF = {
     # ADDED round 9zj630 (2026-09-06, LANE-A): scene 305 (Bg3008, "Pale
     # Silver Sea"), the OTHER of those two seas.  Registered here AND in
     # ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so neither
-    # table can be true without the other for even one round.  Same
+    # table can be true without the other for even one round.  ~~Same
     # not-inert shape as the row above and for the same measured reason: the
     # registry row still reads ``login_entry_allowed: false``, a bare GM
-    # ``/warp 305`` already lands here live (round n4vqxc's pin), and this
+    # ``/warp 305`` already lands here live (round n4vqxc's pin),~~
+    # STRUCK ROUND 1v5i3h: PANYA-DECISION 20260908_1218 opened the ordinary
+    # login door for 17, 126, 304 and 305 and LANE-A round 9lv3fa flipped
+    # the fields, so THE ADMISSION CHECK's FIRST arm -- the registry pin --
+    # answers yes for this scene now and this composer is live for an
+    # ORDINARY player, not only for the caller named above.  pf-adversary
+    # D5 of round ioz8fd measured that happening while the struck sentence
+    # still described a shut door.
+    # and this
     # scene has been named by THE THIRD ADMISSION ARM below since round
     # dyi95m - which is why it is the arm's docstring, not this comment,
     # that carries the reason 305 belongs to that arm rather than the
@@ -561,14 +616,27 @@ def scene_is_sanctioned_for_a_gm_entry(
     predicate gates what a session STANDING IN A SCENE is sent; it is asked
     by a composer the arrival path calls after the login has already put the
     character there.  It cannot move a character, cannot stage a login, and
-    cannot make the ordinary login path admit anything: a session with no GM
-    grant is still refused at ``resolve_entry`` with
-    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code at all.
-    ``login_entry_allowed`` for scene 126 is untouched by this round --
-    ``COO-DECISION 20260829_1444`` wants an attended var2 test before any
-    flip, and this arm is not that flip: it does not widen who may ENTER,
-    only whether a GM who is already there is shown the scene's own cast
-    instead of an empty ocean.
+    cannot make the ordinary login path admit anything.
+    ~~a session with no GM grant is still refused at `resolve_entry` with
+    `REFUSED_NOT_ALLOWED_AT_LOGIN` and never reaches this code at all.
+    `login_entry_allowed` for scene 126 is untouched by this round --
+    `COO-DECISION 20260829_1444` wants an attended var2 test before any
+    flip~~ -- STRUCK, MEASURED FALSE, LANE-A round 9ic0io (pf-adversary D3).
+    Both halves were true when written and are false on this branch, which
+    is the branch that flipped the row: driving
+    ``world_scene_entry.resolve_entry(Position(126, ...), via_login=True)``
+    with no GM grant of any kind now ADMITS, and so do 17, 304 and 305.  The
+    ``1444`` clause is spent as well -- ``PANYA-DECISION 20260908_1218``
+    voided the attended-var2 precondition it names, which is what
+    ``tests/test_lane_a_scene_census.py`` already says in the case that pins
+    this arm.
+
+    WHAT SURVIVES THE STRIKE, and is the sentence this paragraph exists for:
+    THIS ARM still does not widen who may ENTER.  It decides only whether a
+    session already standing in the scene is shown the scene's own cast
+    instead of an empty ocean.  The login door for 126 is the registry row,
+    a different file and a different decision; what changed is that the row
+    is now open, not that this predicate gained the power to open it.
 
     Fail-closed in every direction, the same as the first arm: an import
     that is not there, a registry that will not load, a predicate that
@@ -850,12 +918,18 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
     for the same reason: this predicate gates what a session ALREADY
     STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
-    a login, and cannot make the ordinary login path admit anything - a
-    session with no GM grant is refused at ``resolve_entry`` with
-    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code, and
+    a login, and cannot make the ordinary login path admit anything.
     ``/warp`` itself is refused for a non-GM account by
-    ``accounts.is_gm_account`` before any of this runs.
-    ``login_entry_allowed`` for 126/304/305 is untouched by this round.
+    ``accounts.is_gm_account`` before any of this runs, and that half is
+    still true.
+    ~~a session with no GM grant is refused at `resolve_entry` with
+    `REFUSED_NOT_ALLOWED_AT_LOGIN` and never reaches this code, and
+    `login_entry_allowed` for 126/304/305 is untouched by this round~~ --
+    STRUCK, MEASURED FALSE, LANE-A round 9ic0io (pf-adversary D3), same
+    defect as the second arm carries and struck for the same measurement:
+    on this branch ``resolve_entry(..., via_login=True)`` admits 17, 126,
+    304 and 305 with no GM grant, because this is the branch that opened
+    their rows.  This arm is still not what opened them.
 
     ~~[ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
     ``COO-DECISION 20260905_2052`` item 1** (letter

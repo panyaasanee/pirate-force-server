@@ -64,6 +64,8 @@ from pirateforce_foundation.gm.commands import GmCommand  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 # A value that is NOT the real one -- RE-129 has not answered.  Tests that
 # need the gate open patch this in explicitly so no test can accidentally
 # read as evidence about the real client's accepted version.
@@ -2791,8 +2793,15 @@ class StagedReadbackModuleTests(unittest.TestCase):
         faults have two different remedies (restart / fix lane A's registry,
         versus edit the file), which is the entire reason
         `LoginSceneRefusedError` exists."""
-        self.write_map({"GM_TWO": 17, "GM_ONE": 2})
-        result = self.read()
+        # Scene 17 is the inadmissible row here, and since PANYA-DECISION
+        # 20260908_1218 no shipped row is inadmissible -- so the reading
+        # that refuses it is installed for the length of this case (the real
+        # row, its real spawn, one boolean).  What is measured is the
+        # loader's diagnosis, "barred" rather than "unreadable", which is
+        # about the fault and not about which scene carries it.
+        with bent.patch_disk(bent.shut_at_login(17)):
+            self.write_map({"GM_TWO": 17, "GM_ONE": 2})
+            result = self.read()
         self.assertEqual(staged_readback.STATUS_REFUSED, result.status)
         self.assertEqual("STAGE BARRED", result.notice_text)
         self.assertNotEqual(

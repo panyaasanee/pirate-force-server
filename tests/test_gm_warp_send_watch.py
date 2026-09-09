@@ -75,6 +75,8 @@ from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 
+import pf_bent_scene_registry as bent  # noqa: E402
+
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 #: Prison Exile: marker-backed, `login_entry_allowed` true -- the same
@@ -86,8 +88,12 @@ DESTINATION_SCENE = 2
 #: pf-adversary D1's fixture; asserted, never assumed, at its use site.
 SEA_SCENE_ID = 17
 
-#: Pinned `login_entry_allowed=False`, so the forward write refuses it and
-#: `_persist_warp_scene` never reaches `OUTCOME_PERSISTED` at all.
+#: The scene the login refuses.  PANYA-DECISION 20260908_1218 opened 126 in
+#: the SHIPPED registry, so the refusal is no longer a fact about the file:
+#: every case below that needs one installs it with
+#: `bent.process_reads(bent.shut_at_login(REFUSED_SCENE))` -- the real row,
+#: the real spawn, one boolean flipped back to what it read on 2026-09-07.
+#: `_persist_warp_scene` then never reaches `OUTCOME_PERSISTED` at all.
 REFUSED_SCENE = 126
 
 
@@ -456,10 +462,11 @@ class RealDatabaseTests(unittest.TestCase):
         nothing this connection is owed a send confirmation for."""
         session = self._session("watch02")
         stream = io.StringIO()
-        with redirect_stderr(stream):
-            chat_command_action._warp_teleport_action_no_coords(
-                session, REFUSED_SCENE, self.legacy,
-            )
+        with bent.process_reads(bent.shut_at_login(REFUSED_SCENE)):
+            with redirect_stderr(stream):
+                chat_command_action._warp_teleport_action_no_coords(
+                    session, REFUSED_SCENE, self.legacy,
+                )
         self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE, None))
 
     # ---- confirmed reachable through the real facade shape ---------------
@@ -2638,11 +2645,28 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
         (every other test in the file has a session whose row and label
         agree, which is precisely how the defect survived the first cut).
         """
+        # PANYA-DECISION 20260908_1218 opened scene 17's write-back in the
+        # SHIPPED registry -- a character that logs out at sea must come
+        # back at sea -- so the divergence this case is built on is no
+        # longer supplied by the data.  It is INSTALLED: the real registry
+        # with scene 17's `persist_position_allowed` flipped back, and a
+        # lifecycle rebuilt under it, because `CharacterLifecycle` reads the
+        # registry once in its constructor.  What is under test is unchanged
+        # -- the label restored is the in-memory one -- and it is measured
+        # on a server whose gate refuses the write, which is the only state
+        # in which the two can disagree at all.
+        bend = bent.unpersisted(SEA_SCENE_ID)
+        patcher = bent.patch_disk(bend)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.lifecycle = CharacterLifecycle(
+            self.store, self.home,
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
         self.assertFalse(
-            world_scene_travel.is_position_persist_allowed(SEA_SCENE_ID),
-            "this test needs a scene the durable write refuses; if scene "
-            f"{SEA_SCENE_ID} is now persistable, pick another or the "
-            "divergence this test is about cannot be built",
+            world_scene_travel.is_position_persist_allowed(SEA_SCENE_ID, bend),
+            "the bend did not take: without a scene the durable write "
+            "refuses, the divergence this test is about cannot be built",
         )
         token = "gm_dispatch05"
         state, wrapped = self._production_state(

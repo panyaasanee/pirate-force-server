@@ -68,12 +68,16 @@ THE JOIN, EXACTLY, AS ``world_bg3001_identity`` states it:
 WHAT THIS SCENE DOES AND DOES NOT SHARE WITH SCENE 126, MEASURED ON ITS OWN
 FILES rather than assumed from the sibling:
 
-* THE DOOR IS SHUT.  ``login_entry_allowed`` for scene 304 is ``false`` and
-  this round does not flip it.  The one way a session stands here today is
+* ~~THE DOOR IS SHUT.  ``login_entry_allowed`` for scene 304 is ``false``
+  and this round does not flip it.~~  -- STRUCK ROUND 1v5i3h (pf-adversary D11 of round ioz8fd): PANYA-DECISION 20260908_1218 opened the ordinary login door for 17, 126, 304 and 305, and LANE-A round 9lv3fa flipped the field. It reads TRUE today.  A character whose own persisted
+  row names this scene logs straight in.  ~~The one way a session stands
+  here today is
   a GM ``/warp 304``, which ``#843`` opened as a declared side effect of
   pinning the scene's arrival marker (``accounts.is_gm_account`` still
-  gates ``/warp`` itself).  This module opens no door of its own: a census
-  is composed FOR a session that is already there.
+  gates ``/warp`` itself).~~  This module opens no door of its own: a
+  census is composed FOR a session that is already there -- which is the
+  half of this bullet that survives 1218 unchanged, and the reason the
+  bullet is struck rather than rewritten.
 * FACTION FRAME: SHIPS NOW.  ``SCENE_NAME.n_SAVE`` is 0; ``world_faction_
   admission`` used to refuse this scene (exactly as it refused 126), but
   LANE-A round q02brx (COO-DECISION 20260906_1347) widened it to every

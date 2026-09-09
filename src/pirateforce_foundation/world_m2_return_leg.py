@@ -351,3 +351,74 @@ def return_population_console_line(
             "WORLD_M2_RETURN_POPULATION unmeasured reason=uncomposable:"
             + type(error).__name__
         )
+
+
+# ---------------------------------------------------------------------------
+# ROUND umv5w2: THE WAY OUT OF A ONE-WAY SCENE, COO-DECISION 20260908_1943 Q2
+# ---------------------------------------------------------------------------
+# WHAT CHANGED UNDER THIS MODULE.  Item 2 of the header above says, in the
+# present tense, "IT DOES NOT CLAIM THE SEA IS A TRAP TODAY. It is not: scene
+# 17 carries persist_position_allowed = false ... so a relog already puts the
+# character back on land."  PANYA-DECISION 20260908_1218 opened that pin along
+# with the other five.  The sentence is now FALSE: the durable row follows the
+# character to sea, a login puts it back at sea, and no dispatch site in this
+# tree can move it off again.  COO-DECISION 20260908_1943 Q2 answers what that
+# means -- 1218 said stand where you stood, it did not say a character may
+# enter a scene and never leave -- and makes the way out LANE-A's to build.
+#
+# WHY THIS IS NOT INSIDE `world_scene_entry.resolve_entry`.  MEASURED, round
+# umv5w2, not argued: putting the swap there turned 11 cases of
+# `tests/test_world_scene_registry_login_door.py` red, and reading them is what
+# settled the design rather than the other way round.  That file pins 1218
+# itself -- "a login resolves at the scene the row names, for every populated
+# scene" -- and scene 17 is one of the two destinations in the registry with a
+# measured ground box (CORRECTED round ynfhoc, LANE-A: the pair is `[17,
+# 278]`, re-derived from `scenarios/world_scene_registry_001.json`, which
+# `world_scene_entry._measured_envelope_refutes` already knows about), so
+# scene 17 is the example three of those cases are built on and cannot be
+# moved off.  A rule that rewrites which SCENE a login resolves
+# at is a second decision layered on the first, not a clause inside it, and
+# keeping it here leaves `resolve_entry` answering exactly the question 1218
+# asks it and the console showing both answers separately.
+#
+# WHAT IS NOT CLAIMED.  No player has seen this yet.  Nothing here is reached
+# by a login on a running server: the login call site is `runtime.py`, which is
+# the chief's file, and the one line that would reach it is the ask in the
+# round file and the ASK-COO letter of this round.  This composes and reports;
+# it sends nothing and writes nothing, like everything else above it.
+
+
+def login_entry(stored, *, registry=None, emit=print):
+    """The arrival a LOGIN should use, with the way out of a one-way scene.
+
+    Returns a ``(SceneEntry, ticketed_from)`` pair.  For every scene but a
+    one-way one this is ``resolve_entry``'s own answer and ``None``, byte for
+    byte -- 1218 unchanged.  For a scene a player can be dispatched INTO and
+    that nothing in this tree can send them back OUT of, the login resolves at
+    the home row instead and ``ticketed_from`` is the row the character
+    actually logged out on, so a caller that writes the row back knows both
+    what it wrote and what it replaced.
+
+    A SHUT DOOR STILL WINS.  A scene pinned ``login_entry_allowed = false`` is
+    an operator's or LANE-GM's sanction and the refusal path is what the
+    sanction IS; the ticket is for a scene a login is WELCOME in and cannot
+    leave, so a shut door falls through to ``resolve_entry``'s named refusal
+    rather than being answered here.
+    """
+    row = world_scene_entry._require_position(stored, "stored position")
+    if registry is None:
+        registry = world_scene_travel.load_scene_registry()
+    if row.scene_id not in world_scene_entry.one_way_scene_ids():
+        return world_scene_entry.resolve_entry(
+            row, registry=registry, emit=emit, via_login=True), None
+    try:
+        door = world_scene_travel.destination(row.scene_id, registry)
+    except (KeyError, ValueError):
+        door = None
+    if door is None or not door.login_entry_allowed:
+        return world_scene_entry.resolve_entry(
+            row, registry=registry, emit=emit, via_login=True), None
+    home = world_scene_travel.home_return_position(registry)
+    emit(world_scene_entry.return_ticket_line(row, home))
+    return world_scene_entry.resolve_entry(
+        home, registry=registry, emit=emit, via_login=True), row

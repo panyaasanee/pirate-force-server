@@ -96,7 +96,12 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # its three cases into one scene id -- harmless (both still run, same
 # assertions, same coverage of the same scene) rather than a distinct
 # example, named here so a reader does not have to rediscover it.
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
+# WIDENED LANE-A round 9lv3fa, 2026-09-08: 126, 304 and 305 joined it when
+# PANYA-DECISION 20260908_1218 opened them. 17 stays out because the bent
+# disk reading this file installs is what pins it shut - it is no longer
+# shut in the shipped file, and that is the point of the bend.
+ADMISSIBLE_ON_DISK_TODAY = (
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, 278, 304, 305, 997)
 # Named in the client's scene table ("a ship at sea") and pinned
 # `login_entry_allowed: false` under EVERY admissibility reading this file
 # drives (plain and GM single-use both refuse it), so the disk reading
@@ -140,6 +145,52 @@ def _registry_without_scene(scene_id: int):
     )
 
 
+# LANE-A round 9lv3fa, 2026-09-08.  PANYA-DECISION 20260908_1218 opened the
+# last four doors in the shipped registry (17, 126, 304, 305), so
+# "the scene the FILE refuses" - the fixture this whole file is built on -
+# has nobody left to name.
+#
+# The fixture moves to a BENT DISK READING rather than to another scene id:
+# every case below grades a snapshot AGAINST the file reading, so what it
+# needs is a file reading that refuses something, not a particular scene that
+# is refused.  `_shut_on_disk` patches the loader every one of these modules
+# reaches through (`world_scene_travel.load_scene_registry`, called as a
+# module attribute, never rebound at import), so "on disk" means this bent
+# copy for the length of one case: the real rows, the real spawns, one
+# boolean flipped - precisely the edit an operator makes to
+# world_scene_registry_001.json between two boots, which is what
+# `_registry_with_scene_allowed` below already says about the other
+# direction.
+#
+# WHY NOT SIMPLY DELETE THESE CASES now that the shipped file bars nobody:
+# they do not grade the data, they grade whether a supplied snapshot can
+# WIDEN what the file allows.  That question outlives every scene id in it,
+# and the day a spawnless scene is pinned is the day it matters again.
+_REAL_LOAD_SCENE_REGISTRY = world_scene_travel.load_scene_registry
+
+
+def _registry_with_scene_shut(scene_id: int):
+    real = _REAL_LOAD_SCENE_REGISTRY()
+    return world_scene_travel.SceneRegistry(destinations=tuple(
+        dataclasses.replace(row, login_entry_allowed=False)
+        if row.n_id == scene_id
+        else row
+        for row in real.destinations))
+
+
+class _BentDiskReadingMixin:
+    """Make the FILE reading refuse `BARRED_ON_DISK`, as it used to."""
+
+    def setUp(self) -> None:
+        patcher = mock.patch.object(
+            world_scene_travel, "load_scene_registry",
+            lambda *args, **kwargs: _registry_with_scene_shut(BARRED_ON_DISK),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        super().setUp()
+
+
 class _ExplodingLoader:
     """Asserts the file is not read at all when a snapshot is supplied.
 
@@ -161,7 +212,7 @@ class _ExplodingLoader:
         )
 
 
-class TheSuppliedRegistryIsTheOneAskedTests(unittest.TestCase):
+class TheSuppliedRegistryIsTheOneAskedTests(_BentDiskReadingMixin, unittest.TestCase):
     def test_a_supplied_snapshot_replaces_the_file_read_entirely(self):
         exploding = _ExplodingLoader()
         snapshot = _registry_with_scene_allowed(BARRED_ON_DISK)
@@ -348,7 +399,7 @@ class AWrongObjectRefusesAndDoesNotRaiseTests(unittest.TestCase):
         )
 
 
-class TheFilePathKeepsItsOldLoudnessTests(unittest.TestCase):
+class TheFilePathKeepsItsOldLoudnessTests(_BentDiskReadingMixin, unittest.TestCase):
     """A bent row on the DEFAULT path still raises; it does not go quiet.
 
     THE REGRESSION THIS PINS (pf-adversary, round 7hfrt0, D3).  The guards
@@ -483,7 +534,7 @@ class _ConfigFixture(unittest.TestCase):
         )
 
 
-class SnapshotIsWiderTests(_ConfigFixture):
+class SnapshotIsWiderTests(_BentDiskReadingMixin, _ConfigFixture):
     """The process would accept the destination; the file no longer does.
 
     Reachable without anybody editing anything by hand: lane A pins a new
@@ -552,7 +603,7 @@ class SnapshotIsNarrowerTests(_ConfigFixture):
         self.assertEqual(ADMISSIBLE_ON_DISK, result.scene_id)
 
 
-class ASnapshotMayOnlyNarrowAWriteTests(_ConfigFixture):
+class ASnapshotMayOnlyNarrowAWriteTests(_BentDiskReadingMixin, _ConfigFixture):
     """The file decides what may be WRITTEN; the snapshot may refuse on top.
 
     THE DEFECT THIS CLASS EXISTS FOR (pf-adversary, round 7hfrt0, D2).  An
@@ -654,7 +705,7 @@ class ASnapshotMayOnlyNarrowAWriteTests(_ConfigFixture):
         )
 
 
-class TheStagingSideHonoursItTooTests(_ConfigFixture):
+class TheStagingSideHonoursItTooTests(_BentDiskReadingMixin, _ConfigFixture):
     """`/warp`'s writer, not just the login reader.
 
     The staging side is where a refusal can still reach a person: chief's
@@ -1057,7 +1108,7 @@ def _chat_payload(message: str, speaker: str = "") -> bytes:
     return bytes(out)
 
 
-class TheChatCommandCarriesItAllTheWayDownTests(_ConfigFixture):
+class TheChatCommandCarriesItAllTheWayDownTests(_BentDiskReadingMixin, _ConfigFixture):
     """`/warp` typed into the real dispatch, with a snapshot supplied.
 
     The signature chain from `make_gm_chat_command_action` down to
