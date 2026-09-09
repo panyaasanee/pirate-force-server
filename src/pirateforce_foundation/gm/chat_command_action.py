@@ -6577,12 +6577,18 @@ def _print_lv_line(session: object, token: str, line: str) -> None:
     `level_command.console_line` out of numbers this module validated and
     the store read back -- never out of the raw chat text, which is the
     property every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line` (pf-adversary round
+    `ve2zs4`, D10): `token!r` is `repr`, not this stream's encoding, and a
+    printable-Thai account name passes `repr` unescaped for `cp874` to
+    choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{LV_CONSOLE_TOKEN} account={token!r} {line}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{LV_CONSOLE_TOKEN} account='{safe_account}' {line}", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -6790,12 +6796,18 @@ def _print_sandbox_line(session: object, token: str, line: str) -> None:
     "nothing the GM typed is ever printed" rule as `_print_skill_line` above
     -- and here the last of those is free rather than enforced: `sandbox`
     takes no arguments, so there is nothing typed that COULD reach a line.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line`/`_print_skill_line`/`_print_lv_line` now carry
+    (pf-adversary round `ve2zs4`, D10): this printer had the same bare
+    `token!r` shape they did.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - a lost line costs this line
         # and nothing else; the readback itself already happened.
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
@@ -7040,12 +7052,25 @@ def _print_job_line(session: object, token: str, line: str) -> None:
     `job_command.console_line` out of numbers this module validated and the
     store read back -- never out of the raw chat text, which is the property
     every printer in this module holds.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, THE SAME AS EVERY
+    OTHER OPERATOR-CONTROLLED FIELD IN THIS FILE (pf-adversary round
+    `ve2zs4`, D10, restating `nkb608` D-J: the bug was fixed once and this
+    printer still carried the old shape).  `token!r` alone folds through
+    Python's own `repr`, which is not this stream's encoding: a Thai
+    account name is largely PRINTABLE Unicode, so `repr` passes it through
+    unescaped and a `cp874` console can raise on the very bytes the
+    `except` below exists to catch, losing the whole line -- and a
+    newline in the account name would have forged a second console line,
+    the structural half `_one_line` exists to fold.  `console_safe` folds
+    to what THIS stream can carry; `_one_line` keeps the field to one line.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
@@ -7063,12 +7088,19 @@ def _print_skill_line(session: object, token: str, line: str) -> None:
     block greps for a line STARTING with the token; a `GM_LV`-style prefix
     ahead of it would leave those greps finding nothing while the line was
     right there.
+
+    `account=` GOES THROUGH `console_safe`/`_one_line`, the same fold
+    `_print_job_line` above now carries (pf-adversary round `ve2zs4`, D10):
+    `token!r` alone is `repr`, not this stream's encoding, and a Thai
+    account name is printable enough that `repr` waves it through
+    unescaped for `cp874` to choke on.
     """
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
     try:
-        print(f"{line} account={token!r}", file=sys.stderr)
+        safe_account = console_safe(_one_line(token), sys.stderr)
+        print(f"{line} account='{safe_account}'", file=sys.stderr)
     except Exception as error:  # noqa: BLE001 - see the docstring
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
