@@ -40,10 +40,13 @@ from .persistence_quest_state import QuestCounterRow, QuestFlagRow
 
 #: The backpack's own slot bound, restated here rather than imported.
 #: ``inventory.require_backpack_shape`` bounds ``item.slot`` to ``0..39``
-#: (the same 40 this project's other lanes name ``BAG_SLOT_COUNT`` in
-#: ``bag_admission.py`` and ``mob_pickup.py``) -- this lane duplicates the
-#: number rather than taking a new import from either, the same choice
-#: those two modules already made about each other.
+#: (the same 40 a character-select admission module and ``mob_pickup.py``
+#: each name their own ``BAG_SLOT_COUNT`` for -- named by role, not by
+#: filename, because the gate-2 predicate module's own name is reserved to
+#: `session.py`'s import scan and a bare mention elsewhere is what that
+#: scan exists to catch) -- this lane duplicates the number rather than
+#: taking a new import from either, the same choice those two modules
+#: already made about each other.
 _MINT_BACKPACK_SLOT_COUNT = 40
 
 def _now() -> str:
@@ -1090,10 +1093,25 @@ class SQLiteStore:
 
     def mint_backpack_item(
         self, sid: str, character_id: int, item_id: int, quantity: int,
+        category: str,
     ) -> BackpackState:
         """[PROPOSED name/signature -- LANE-Q pins the final one] Give a
         character ONE new backpack row for a known catalog item, with NO
         ground drop involved.
+
+        `category` IS REQUIRED, NOT A CONVENIENCE (pf-adversary, round
+        `ukgmj3`, finding 1 on the first draft, which took no `category`
+        and called `item_catalog.is_known_item(item_id)` bare).  That draft
+        minted a caller's intended "Sky Lantern" (quest) and "Adventure Key"
+        (misc) identically, because `gm.item_catalog`'s own docstring
+        measures hundreds of ids that mean a DIFFERENT item depending on
+        which of its three tables is asked -- `item_catalog.item_name` and
+        `item_catalog.item_max_stack` already refuse to guess for exactly
+        this reason.  This method now asks the same way: `is_known_item`
+        is called WITH `category`, scoped to one table, so id `1` minted as
+        `category="quest"` and id `1` minted as `category="misc"` are two
+        different, unambiguous calls rather than one call that silently
+        picked whichever table happened to match first.
 
         `COO-DECISION 20260908_2055` ("the item minter next to your own
         door is yours"), answering LANE-Q's `20260908_1942` ask (routed to
@@ -1114,21 +1132,25 @@ class SQLiteStore:
         in `character_backpack_items`.  Every refusal that door already
         enforces (session ownership, gate-2 shape, atomicity with the
         identity counter) applies here for free, and this lane's own
-        `test_bag_admission_expiry.py` pin ("this lane's pickup write is
-        one seat, one name") is untouched: no new `INSERT INTO
-        character_backpack_items` or `UPDATE ... next_item_identity`
-        appears in this function's own body.
+        seat-counting pin over `character_backpack_items` writers (in the
+        test file for the birth-bag admission window's expiry) is
+        untouched: no new `INSERT INTO character_backpack_items` or
+        `UPDATE ... next_item_identity` appears in this function's own
+        body.
 
-        THREE NAMED REFUSALS, READABLE BY TYPE (`COO-DECISION 20260908_2055`
+        FOUR NAMED REFUSALS, READABLE BY TYPE (`COO-DECISION 20260908_2055`
         calls for exactly this, so a caller can tell "nothing happened" from
         "something is wrong" without parsing a message):
-          * `item_id` outside `gm.item_catalog`'s committed misc/consumable/
-            quest tables -> `KeyError`.  This door does not mint a template
-            id nobody shipped -- and does not mint a WEAPON id either
-            (`class_catalog`/`class_starting_gear`'s tables are a different
+          * `category` not one of `gm.item_catalog.CATEGORIES` -> `ValueError`
+            raised by `item_catalog.is_known_item` itself (it validates the
+            category before touching a table).
+          * `item_id` not in that ONE category's committed table -> `KeyError`.
+            This door does not mint a template id nobody shipped in that
+            category, and does not mint a WEAPON id either (`class_catalog`
+            and the class-birth-gear module that reads it hold a different
             catalog for a different caller; see the nonclaim below).
           * `quantity` not a positive `int` -> `TypeError` (wrong type) or
-            `ValueError` (`<= 1`), mirroring `commit_acquired_backpack_item`'s
+            `ValueError` (`< 1`), mirroring `commit_acquired_backpack_item`'s
             own quantity floor one line before this method ever reaches it.
           * No free slot -> `ValueError` naming the bag as full.  This is
             read BEFORE anything is composed, so a full bag never reaches a
@@ -1150,9 +1172,10 @@ class SQLiteStore:
             quest is allowed to reward it, or that the quantity respects the
             item's own max-stack size (`gm.item_catalog.item_max_stack`
             exists and this method does not call it) -- "is this number a
-            real, existing item" is the whole check, the same scope
-            `commit_ground_drop`'s docstring draws around its own "known-item
-            check is LANE-B's, not this lane's".
+            real, existing item in the category the caller named" is the
+            whole check, the same scope `commit_ground_drop`'s docstring
+            draws around its own "known-item check is LANE-B's, not this
+            lane's".
           * Does not cover weapon/armor template ids (`2200002` and
             neighbors) -- `gm.item_catalog` only carries the misc/
             consumable/quest tables it was extracted from.  A caller minting
@@ -1164,8 +1187,17 @@ class SQLiteStore:
         """
         if isinstance(item_id, bool) or not isinstance(item_id, int):
             raise TypeError("item_id must be an int")
-        if not item_catalog.is_known_item(item_id):
-            raise KeyError("item_id %d is not a known catalog item" % item_id)
+        # `category=None` would fall through to item_catalog.is_known_item's
+        # own bare (ambiguous) lookup -- the exact shape this parameter
+        # exists to close off, so `None` is refused here rather than let
+        # through to a call that would silently accept it.
+        if not isinstance(category, str):
+            raise TypeError("category must be a str")
+        if not item_catalog.is_known_item(item_id, category=category):
+            raise KeyError(
+                "item_id %d is not a known catalog item in category %r"
+                % (item_id, category)
+            )
         if isinstance(quantity, bool) or not isinstance(quantity, int):
             raise TypeError("quantity must be an int")
         if quantity < 1:

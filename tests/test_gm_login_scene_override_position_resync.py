@@ -468,8 +468,21 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # 130 joined it this round (yfbqmg), TENTH AND LAST door, same
         # shape, NOT elevated-risk.  Scene 17, the id this test actually
         # drives, is still barred and still refused either way.
+        # ~~`... 11, 14, 126, 130, 278, 997)`~~ -- 126 was in this way-out
+        # list only because a chief letter SANCTIONED it, and that row was
+        # retired in LANE-GM round `xbfcsi` (`COO-DECISION 20260908_2141`),
+        # so the single-use way out is the plain set again.
+        #
+        # STILL A LITERAL, DELIBERATELY (pf-adversary D5, this round: the
+        # first fix derived the expected string from
+        # `single_use_stageable_scene_ids()`, which is the function the code
+        # under test calls -- that pin can only fail when the console stops
+        # printing the words, never when it prints the wrong set).  A
+        # literal is what makes this a VALUE pin; the cost is that a real
+        # arrival or retirement is an edit here, which is the same cost
+        # `ADMISSIBLE_TODAY` pays two files over and for the same reason.
         self.assertIn(
-            "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, "
+            "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, "
             "278, 997)",
             console)
 

@@ -18,10 +18,16 @@ opens every login door.  That is true ON LANE-A'S BRANCH: the change is
 `pirate-force-server#1137`, which is open, DRAFT and `dirty` at the time of
 this measurement, so on main today `login_scene_admission.login_entry_is_pinned(126)`
 is still False and `sanctioned_barred_blocker(126)` still returns a real
-blocker.  The route below is live.  The day `#1137` lands it goes dormant
-and the sanction retires with it, which is a decision with a cost measured
-by lane A (25 cases in 5 files) rather than a line to delete -- see
-`notes_to_chief/20260908_1805_LANE-GM-TO-LANE-A-...`.  Opening that door to
+blocker.  ~~The route below is live.  The day `#1137` lands it goes dormant
+and the sanction retires with it~~ -- STRUCK, LANE-GM round `xbfcsi`: THE
+SANCTION WENT FIRST, and the order in that sentence is what
+`COO-DECISION 20260908_2141` had to invert.  126's row was retired while the
+door was still shut, because the branch that opens it cannot merge while this
+lane's tripwire is red on it.  So the route below is DORMANT on main today
+with no scene to serve, not live; the cost lane A measured (25 cases in 5
+files) was paid in that round rather than deferred -- see
+`notes_to_chief/20260908_1805_LANE-GM-TO-LANE-A-...` and the two `2141`
+letters that replaced its ordering.  Opening that door to
 buy the relog would trade a measured policy for a convenience, which is the
 trade `1444` already refused once.
 
@@ -35,15 +41,20 @@ account starts in this one scene, consumed on use.
 named this lane's own file as the place, so there is no CORE-REQUEST to wait
 on: everything below is inside `gm/`.
 
-WHAT MAKES 126 THE ONLY SCENE ON THIS ROAD, and why there is no `126` written
-anywhere in the code below.  The route opens only for a scene that is BOTH
-refused by the login path AND named by a chief letter in
-`login_scene_admission.SANCTIONED_BARRED_SCENES`, which today holds exactly
-one id.  A scene that is merely refused gets the refusal it always got, with
-no entry written and no line printed beyond `persist_warp_scene`'s own.  When
-a future letter sanctions a second scene, this route follows the letter
-rather than a constant somebody has to remember to edit --
-`test_gm_warp_relog_stage.py` pins the "exactly one today" reading so that
+WHAT MAKES A SCENE ELIGIBLE FOR THIS ROAD, and why there is no `126`
+written anywhere in the code below.  The route opens only for a scene that is
+BOTH refused by the login path AND named by a chief letter in
+`login_scene_admission.SANCTIONED_BARRED_SCENES` -- ~~which today holds
+exactly one id~~ WHICH IS EMPTY ON MAIN TODAY: scene 126's row was retired in
+LANE-GM round `xbfcsi` (`COO-DECISION 20260908_2141`), so this road is open
+for NOBODY until a letter names a scene again, or until lane A's login row
+for 126 lands and makes the road unnecessary for it.  A scene that is merely
+refused gets the refusal it always got, with no entry written and no line
+printed beyond `persist_warp_scene`'s own -- except for a scene lane A
+decreed an arrival for, which is announced rather than swallowed, because a
+character really was moved there.  When a future letter sanctions a scene,
+this route follows the letter rather than a constant somebody has to remember
+to edit -- `test_gm_warp_relog_stage.py` pins the map's contents so that
 widening the map is a decision somebody makes on purpose.
 
 FAIL-CLOSED, AND NOT BY THIS MODULE'S OWN GOOD BEHAVIOUR.  The write itself

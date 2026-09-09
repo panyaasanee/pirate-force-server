@@ -186,6 +186,56 @@ DEEP_SEA_TEMPLE_FLOOR2_ROSTER_COUNT = 51
 # ``TheSecondAdmissionArmTests`` below, which drives both arms rather than
 # reading the boolean back.
 ATLANTIS = 126
+
+# LANE-GM RETIRED SCENE 126'S SANCTION (their round `xbfcsi`, 2026-09-09, on
+# `COO-DECISION 20260908_2141`), so `SANCTIONED_BARRED_SCENES` is empty on
+# main and this lane's SECOND admission arm -- the one that asks the GM
+# lane's own predicate -- answers no for 126 until lane A's login row lands
+# and the FIRST arm covers it.  The arm's rules are this lane's, not scene
+# 126's, so the cases that test the ARM stand a sanction up for the duration
+# of one test instead of going quietly vacuous.  The cases that ask what is
+# true ON MAIN (`TheRetiredSanctionIsRecordedHereTests`) never call this.
+#
+# Touching only this file's tests is what `COO-DECISION 20260908_2141` and
+# `20260908_1742` item 4 allow: no lane sends another lane a bill, and no
+# `src/` file of lane A is edited here.
+_GM_SANCTION_CITATION = "CHIEF-DECISION 20260829_1603 item 2"
+
+#: Captured at import, before any test installs a fixture over it.
+_SHIPPED_GM_SANCTION_MAP = dict(
+    __import__(
+        "pirateforce_foundation.gm.login_scene_admission",
+        fromlist=["login_scene_admission"],
+    ).SANCTIONED_BARRED_SCENES
+)
+
+
+def _shipped_gm_sanction_map():
+    """The GM lane's map AS SHIPPED, captured before any fixture ran.
+
+    A case inside a class whose ``setUp`` installs a sanction still has to
+    be able to ask what MAIN carries, and reading the patched attribute
+    would answer with the fixture.  Taken at import of this test module --
+    a copy, not the proxy -- rather than by reloading the GM module, which
+    would hand every other holder of its functions a different object
+    mid-suite.
+    """
+    return dict(_SHIPPED_GM_SANCTION_MAP)
+
+
+def _install_the_gm_sanction(test, *, scene_id=ATLANTIS):
+    from types import MappingProxyType
+
+    from pirateforce_foundation.gm import login_scene_admission
+
+    patcher = mock.patch.object(
+        login_scene_admission,
+        "SANCTIONED_BARRED_SCENES",
+        MappingProxyType({scene_id: _GM_SANCTION_CITATION}),
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
 # The Dark Fog Sea, scene 304: this lane's fourteenth composer (round
 # `yob0a2`), admitted by the third arm rather than by its registry door.
 DARK_FOG_SEA = 304
@@ -516,6 +566,10 @@ class ComposerContractTests(unittest.TestCase):
     ``scene_entry_registry`` - the same argument runtime.py passes - so
     nothing here monkeypatches a loader or touches the repository's file.
     """
+
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction(self)
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -2028,6 +2082,10 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
     cannot answer.
     """
 
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction(self)
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.legacy = _legacy()
@@ -2087,20 +2145,37 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
 
     def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
         """pf-adversary D8, round `4uztfj`: this arm is a RUNTIME COUPLING
-        to another lane's table.  If LANE-GM ever drops 126 from
-        ``SANCTIONED_BARRED_SCENES`` -- for any reason other than the door
-        opening -- this scene's census goes dark and the only signal in
-        production is a ``..._declined`` latch nobody is watching.  So the
-        dependency is pinned HERE, in this lane's own suite, where it goes
-        red on the commit that removes it rather than on the boot that
-        needed it."""
+        to another lane's table.  IT FIRED, and this case is what it looks
+        like afterwards rather than a deletion nobody reads.
+
+        LANE-GM retired 126 from ``SANCTIONED_BARRED_SCENES`` in their round
+        `xbfcsi`, ordered by ``COO-DECISION 20260908_2141`` -- not because
+        the door opened on main, but to break the circular wait in which
+        lane A's door could not land while the GM tripwire was red on it and
+        the tripwire could not go green while the row was there.
+
+        So the coupling is pinned in the direction it now runs: the map is
+        empty, this arm therefore answers NO for 126 on main, and the day
+        any id appears in that map again this case says so.  The census for
+        126 rides on lane A's first arm from here on -- the door itself --
+        which is where `PANYA 1218` wanted it.
+        """
         from pirateforce_foundation.gm import login_scene_admission
-        self.assertIn(
-            ATLANTIS, login_scene_admission.SANCTIONED_BARRED_SCENES,
-            "the GM lane no longer sanctions scene 126: either its door "
-            "opened (then this lane's first admission arm covers it and "
-            "this test should be deleted) or the census just went dark",
-        )
+        # The class fixture installs a sanction; this case is the one that
+        # asks what MAIN carries, so it reads the module's own file.
+        with mock.patch.object(
+            login_scene_admission,
+            "SANCTIONED_BARRED_SCENES",
+            _shipped_gm_sanction_map(),
+        ):
+            self.assertEqual(
+                {}, dict(login_scene_admission.SANCTIONED_BARRED_SCENES),
+                "the GM lane sanctions a scene again: this lane's second "
+                "admission arm is live for it, and this test is where that "
+                "was supposed to be noticed",
+            )
+            self.assertFalse(
+                lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
 
     def test_the_arm_fails_closed_when_the_predicate_raises(self):
         from pirateforce_foundation.gm import login_scene_admission
@@ -2170,6 +2245,10 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
 
 class AtlantisRegistrationTests(unittest.TestCase):
     """The ocean panel's census, composed through the registered composer."""
+
+    def setUp(self):
+        super().setUp()
+        _install_the_gm_sanction(self)
 
     @classmethod
     def setUpClass(cls) -> None:

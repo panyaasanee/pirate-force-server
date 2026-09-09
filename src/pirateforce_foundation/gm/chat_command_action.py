@@ -1474,7 +1474,10 @@ EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED = (
 # "no, and here is which no" is exactly as load-bearing as the yes.  Kept
 # out of `EVENT_WARP_SCENE_PERSIST_PREFIX`'s vocabulary on purpose: that
 # prefix answers what happened to the ROW, this one what happened to the
-# next LOGIN, and they now disagree by design for scene 126.
+# next LOGIN.  ~~They now disagree by design for scene 126.~~ They agree
+# again since the sanction was retired (LANE-GM round `xbfcsi`): both answer
+# "no" for 126, one about the row and one about the next login.  The two
+# vocabularies stay separate for the day a letter sanctions a scene again.
 EVENT_WARP_RELOG_STAGE_PREFIX = "gm_chat_action_warp_relog_stage_"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 # The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
@@ -3929,11 +3932,15 @@ def _warp_teleport_action_no_coords(
     else:
         # THE RELOG HALF, `COO-DECISION 20260905_1746` item 4.  The frame is
         # already built and about to move the ship on screen; the durable row
-        # was refused.  For a sanctioned-barred scene (126 today, and only
-        # because a chief letter names it) the relog is arranged through the
-        # single-use login entry instead, so `PANYA 1329` (live) and
-        # `PANYA 1430` (still there after a relog) are both served without
-        # opening the login door `COO 20260829_1444` shut.
+        # was refused.  For a sanctioned-barred scene (~~126 today, and only
+        # because a chief letter names it~~ -- NO SCENE IS SANCTIONED SINCE
+        # LANE-GM round `xbfcsi`, `COO-DECISION 20260908_2141`) the relog is
+        # arranged through the single-use login entry instead, so
+        # `PANYA 1329` (live) and `PANYA 1430` (still there after a relog)
+        # are both served without opening the login door
+        # `COO 20260829_1444` shut.  With the map empty this branch reaches
+        # `scene_not_sanctioned` for every scene and says so on the console:
+        # `PANYA 1430` is off for 126 until lane A's login row lands.
         #
         # ELSE, NOT A SECOND `if`, and the difference is the whole guard: this
         # runs on outcomes that are NOT `persisted`, so a warp whose row DID
