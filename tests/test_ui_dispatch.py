@@ -1967,7 +1967,12 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
         self.assertEqual(module_name, owner_name)
 
     def test_an_id_with_no_reviewed_row_cannot_be_taken_by_a_lane(self):
-        """The six ids nobody has written an answerer for stay shut.
+        """The ids nobody has written an answerer for stay shut.
+
+        NO COUNT IS WRITTEN IN THIS DOCSTRING (pf-adversary round
+        `ncejt8`, F1/F7: "six" was already false and a hand-written
+        number here cannot be caught by anything).  The set the loop
+        below walks is computed, so it is right by construction.
 
         `ANSWERABLE_VITAL_IDS` says runtime.py ROUTES the id here; it
         never said a lane may claim it.  Before the table, any lane file
@@ -1994,8 +1999,10 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
         the table, so a rename or a deleted file turns this red instead
         of leaving a row pointing at nothing.
         """
+        from pirateforce_foundation import ui_friend_wire
         from pirateforce_foundation import ui_party_wire
         from pirateforce_foundation import ui_trade_wire
+        from pirateforce_foundation import ui_friend_wire
 
         self.assertEqual(
             set(ui_dispatch._ANSWERER_OWNERS),
@@ -2003,6 +2010,11 @@ class TheReviewedOwnerTakesTheIdTests(_RegistryIsolation):
                 ui_party_wire.PARTY_INVITE_VITAL_ID,
                 ui_trade_wire.TRADE_INVITE_VITAL_ID,
                 ui_party_wire.PARTY_CMD_VITAL_ID,
+                # Round asw0n3, the fourth button and the first of the
+                # five CommunityModule_Client ids.
+                ui_friend_wire.COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
+                # Round ncejt8, the second of those five.
+                ui_friend_wire.COMMUNITY_REMOVE_FRIEND_VITAL_ID,
             },
         )
         # READ FROM DISK, NOT IMPORTED.  Importing an answerer module
@@ -2410,6 +2422,19 @@ class TheReviewedShapesArePinnedTests(unittest.TestCase):
         # here for the same reason as the two above: a registry that
         # widens without a test changing is a registry nobody reviewed.
         "UI_PARTY_CMD_ANSWERED": (0x2466, frozenset((0,)), 11, 64),
+        # Round asw0n3.  A tagged wstring makes this width the player's,
+        # so it is back to a CEILING and the same 512/1024 pair the two
+        # wstring rows at the top carry -- written out here as a literal
+        # for the same reason they are.
+        "UI_FRIEND_REQUEST_ANSWERED": (0xB9E9, frozenset((0,)), 512, 1024),
+        # Round ncejt8.  The second fixed-width class: u64 + u64 + u8,
+        # exactly 20 bytes, checked for EQUALITY against BOTH the
+        # answerer's own constant and this row (round m54yxh D7's shape).
+        # 64 is the same deliberately-inexact frame bound the party_cmd
+        # row uses; the frame measured 52 on the commit that added it,
+        # pinned one file over in
+        # tests/test_lane_ui_friend_remove_answer.py.
+        "UI_FRIEND_REMOVE_ANSWERED": (0x98A1, frozenset((0,)), 20, 64),
     }
 
     def test_the_registry_is_exactly_these_reviewed_rows(self):

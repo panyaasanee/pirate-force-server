@@ -74,6 +74,15 @@ HYPOTHESIZED_V111_SLOT2_BACKPACK = BackpackState(
     ),
 )
 
+#: The slot HYP-PF-008 moves the surviving identity-1 stack to -- the one
+#: identity 3 vacates when the V111 merge folds it away.  Named rather than
+#: spelled 2 at the call site so ``hypothesized_v111_slot2_state`` and the
+#: constant below cannot drift apart silently; pinned against
+#: ``HYPOTHESIZED_V111_SLOT2_BACKPACK`` by
+#: ``tests/test_starting_bag_gates.py::
+#: test_the_slot2_move_derives_the_golden_it_used_to_compare_against``.
+V111_SLOT2_DESTINATION = 2
+
 V111_MERGE_REQUEST_PC = bytes.fromhex(
     "12 6F 6E 14 00 00 00 00 08 00 0B 02 12 01 00 12 "
     "ED 4B 0B 00 0B 04 14 00 00 00 00 32 03 00 00 00 "
@@ -130,8 +139,11 @@ def merged_v111_state(before: BackpackState) -> BackpackState:
     starting set grow: the day a class is born holding a different weapon, its
     merged bag differs from ``MERGED_V111_BACKPACK`` in exactly that row, and
     a constant post-state check would reject a merge it had just performed --
-    leaving the row already written.  Pinned against the measured constant by
-    ``test_inventory_starting_set``.
+    leaving the row already written.  Pinned against the measured constant
+    end to end by ``tests/test_starting_bag_gates.py::
+    test_the_stack_merge_follows_the_set_from_inventory_alone`` (there is no
+    ``test_inventory_starting_set`` module; this docstring named one for
+    three rounds and `git grep` returns nothing for it).
 
     Raises ``ValueError`` if the rows the merge needs are not both present,
     or if the summed stack leaves the u16 range ``require_backpack_shape``
@@ -201,6 +213,68 @@ def merged_v111_states() -> tuple[BackpackState, ...]:
         merged_v111_state(state)
         for state in STARTING_BACKPACKS
         if can_merge_v111(state)
+    )
+
+
+# HYP-PF-008 (the ledger annotation for this file sits on the constant above:
+# docs/HYPOTHESIS_LEDGER.json declares one emitter per file per hypothesis).
+def hypothesized_v111_slot2_state(merged: BackpackState) -> BackpackState:
+    """The HYP-PF-008 post-state for ONE already-merged bag.
+
+    The move is "the surviving identity-1 stack goes to the slot identity 3
+    vacated"; it touches no other row and no base field.  DERIVING it is the
+    same lesson ``merged_v111_state`` records one screen up, arriving one
+    gate later: ``store.apply_hypothesized_v111_slot2_move`` compared its
+    pre-state and its post-state against the single
+    ``HYPOTHESIZED_V111_SLOT2_BACKPACK``/``MERGED_V111_BACKPACK`` pair, so
+    the day a class is born holding a different weapon its move was refused
+    outright -- by the PRE-state door, before any row was touched (an earlier
+    draft of this sentence said the move ran and was rolled back; pf-adversary
+    measured that it never ran).  chief's
+    ``R404`` letter (``notes_to_chief/20260908_1703_FROM_CHIEF_R404-*``)
+    named those two comparisons as the half of CORE-REQUEST ``0206`` that
+    stayed in this lane's zone.
+
+    Raises the same way ``move_known_item_to_free_slot`` does -- ``KeyError``
+    when identity 1 is not in the bag, ``FileExistsError`` when slot 2 is
+    still occupied -- rather than answering with a state no bag can equal.
+    ``can_move_v111_slot2`` is the question to ask first.
+    """
+    transition = move_known_item_to_free_slot(merged, 1, V111_SLOT2_DESTINATION)
+    if transition is None:
+        raise ValueError("the HYP-PF-008 move needs identity 1 off slot 2")
+    after, _moved = transition
+    return after
+
+
+def can_move_v111_slot2(merged: BackpackState) -> bool:
+    """Whether ``hypothesized_v111_slot2_state`` can answer for this bag.
+
+    A merged bag whose identity 1 is already on slot 2, or that has no
+    identity 1 at all, has no HYP-PF-008 counterpart -- a FACT about the bag.
+    Asking this first is what keeps one such bag in LANE-CS's five-class
+    table from turning ``hypothesized_v111_slot2_states`` into a raise, the
+    failure mode ``can_merge_v111`` was written for one function earlier.
+    """
+    try:
+        hypothesized_v111_slot2_state(merged)
+    except (ValueError, KeyError, FileExistsError):
+        return False
+    return True
+
+
+def hypothesized_v111_slot2_states() -> tuple[BackpackState, ...]:
+    """The HYP-PF-008 counterpart of every merged bag that has one.
+
+    A FUNCTION, computed per call, for the reasons ``merged_v111_states``
+    states: it reads the live starting set, and it cannot fail at import.
+    Bags without a counterpart are OMITTED, so it is NOT index-aligned with
+    ``merged_v111_states()``.
+    """
+    return tuple(
+        hypothesized_v111_slot2_state(state)
+        for state in merged_v111_states()
+        if can_move_v111_slot2(state)
     )
 
 

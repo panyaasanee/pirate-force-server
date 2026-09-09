@@ -178,6 +178,63 @@ class TheSanctionSetGrantsNothingTests(unittest.TestCase):
                     scene_id, login_scene_admission.stageable_scene_ids()
                 )
 
+    def test_the_map_is_exactly_the_letters_this_lane_holds(self):
+        # THE TRIPWIRE, IN BOTH DIRECTIONS, and it is written as an exact
+        # equality on purpose: the loop-shaped test above cannot see an
+        # EMPTIED map (its body simply never runs), so on its own it grades a
+        # premature retirement green.  `COO-DECISION 20260908_1742` orders
+        # 126 retired and names the token it will check; this equality is
+        # what makes that retirement a deliberate edit here, with the letter
+        # that authorised it cited, instead of a deletion nobody notices.
+        #
+        # One mutant each way, which is the whole contract: delete the row
+        # and this goes red; add `{999: "..."}` and this goes red.
+        self.assertEqual(
+            dict(login_scene_admission.SANCTIONED_BARRED_SCENES),
+            {126: "CHIEF-DECISION 20260829_1603 item 2"},
+        )
+
+    def test_no_sanction_has_outlived_its_blocker(self):
+        # The retirement rule as arithmetic (`sanction_is_retirable`): an
+        # entry dies the moment its blocker answers BLOCKER_NONE.  Empty is
+        # healthy; non-empty means a round owes a deletion and this names
+        # which one, instead of leaving the map to rot until somebody reads
+        # a letter.
+        self.assertEqual(
+            login_scene_admission.retirable_sanctioned_scene_ids(), ()
+        )
+
+    def test_a_sanction_whose_door_opened_is_reported_retirable(self):
+        # The other half of the same claim, supplied rather than waited for:
+        # on a registry where lane A HAS opened the door, the same function
+        # names the entry.  Without this case the test above could pass by
+        # never being able to answer anything.
+        registry = _registry_with_sanctioned_row(login_entry_allowed=True)
+        self.assertTrue(
+            login_scene_admission.sanction_is_retirable(
+                SANCTIONED, scene_registry=registry
+            )
+        )
+        self.assertEqual(
+            login_scene_admission.retirable_sanctioned_scene_ids(
+                scene_registry=registry
+            ),
+            (SANCTIONED,),
+        )
+
+    def test_the_sanction_is_still_load_bearing_on_this_tree(self):
+        # WHY THE RETIREMENT MAY NOT BE DONE BY DATE.  Measured here rather
+        # than asserted in prose: with the door still shut, 126 reaches the
+        # single-use map ONLY through the sanction, and that map is what
+        # `warp_relog_stage` stages through.  Deleting the row while this
+        # holds serves `PANYA 1329` (the live warp) and drops `PANYA 1430`
+        # (still there after a relog) with no line printed by the branch
+        # that used to be silent.
+        self.assertFalse(login_scene_admission.login_entry_is_pinned(SANCTIONED))
+        self.assertIn(
+            SANCTIONED, login_scene_admission.single_use_stageable_scene_ids()
+        )
+
     def test_the_map_refuses_an_item_assignment(self):
         # A TYPO GUARD, and pf-adversary (D8) was right that the first
         # version of this test sold it as more: it stops an accidental

@@ -106,35 +106,35 @@ class CrossingHandoffTests(unittest.TestCase):
         return columbus_quest_dispatch.resolve_columbus_arrival(
             emit=lambda line: None)
 
-    def test_the_sea_crossing_composes_a_clear_before_the_teleport(self):
+    def test_the_sea_crossing_composes_its_cast_after_the_teleport(self):
         """The whole reason this module exists, asserted as bytes.
 
-        STILL a CLEAR, deliberately, round ``vwekfq`` (LANE-A): scene 17 now
-        has a real, measured cast (``world_bg1001_identity`` /
-        ``world_population_bg1001``), but it is not registered in
-        ``world_population_handoff.ROSTER_COMPOSERS`` - see that table's own
-        comment for why (``runtime.py``'s Columbus call site hardcodes
-        ``crossing_handoff_dispatched=True`` on the assumption this composes
-        KIND_CLEAR every time, and flipping that without chief's review
-        would send a never-attended-tested roster to a live client).  So the
-        client is still holding Port Royal's collection, and
-        ``make_runtime_remote_actors`` still replaces rather than merges.
+        ~~STILL a CLEAR, deliberately, round ``vwekfq`` (LANE-A).~~  A CENSUS
+        since chief round R405/y8fm7z, which is the review that withholding
+        asked for: scene 17's real, measured cast
+        (``world_bg1001_identity`` / ``world_population_bg1001``) is
+        registered in ``world_population_handoff.ROSTER_COMPOSERS``, so the
+        client that used to arrive holding Port Royal's collection - or,
+        after the clear, holding nobody - now receives this scene's own
+        seven.  The slot moves WITH the kind: a clear goes BEFORE the
+        teleport (empty the old scene first), a census AFTER it (the actors
+        belong to the scene the player is now in).
         """
         handoff = crossing.crossing_handoff(self.legacy, self.entry())
-        self.assertEqual(handoff.kind, world_population_handoff.KIND_CLEAR)
+        self.assertEqual(handoff.kind, world_population_handoff.KIND_CENSUS)
         self.assertEqual(
             handoff.scene_id, columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID)
         self.assertEqual(
             handoff.dispatch_slot,
-            world_population_handoff.SLOT_BEFORE_TELEPORT,
+            world_population_handoff.SLOT_AFTER_TELEPORT,
         )
         self.assertTrue(handoff.sends_a_frame)
-        self.assertEqual(handoff.actor_count, 0)
+        self.assertEqual(handoff.actor_count, 7)
         # The bytes are the frozen encoder's, not this module's: the frame
         # must be exactly what the encoder wraps its own pc in.
         self.assertEqual(handoff.frame, self.legacy.frame_pc(handoff.pc))
 
-    def test_the_sea_no_longer_says_it_is_castless_but_still_clears(self):
+    def test_the_sea_no_longer_says_it_is_castless_and_no_longer_clears(self):
         """A decision indistinguishable from an oversight is an oversight -
         and so is the reverse: a stale decision left standing after the data
         that grounded it turned out to be incomplete.
@@ -144,38 +144,43 @@ class CrossingHandoffTests(unittest.TestCase):
         which checked only the DIRECT ``n_CLINE_TYPE`` column
         (``CONSTDATA_TH__SCENE_NAME``) and never opened the INDIRECT one
         (``CONSTDATA_TH__INSTANCE``) that resolves 7 of 8 placements.  Round
-        ``vwekfq`` (LANE-A) removed the stale entry - see
-        ``world_population_handoff``'s own struck comment on
-        ``SCENES_INTENTIONALLY_UNPOPULATED`` - but did NOT register a
-        crossing-handoff composer (see the class docstring above), so the
-        reason is now the honest "not wired yet" string every other
-        registered-but-unrouted scene prints, not "impossible" and not the
-        stale "on purpose".
+        ``vwekfq`` (LANE-A) removed the stale entry, ~~but did NOT register a
+        crossing-handoff composer, so the reason is now the honest "not
+        wired yet" string~~ - and chief round R405/y8fm7z registered it, so
+        the reason is now the one every other routed scene prints.  All three
+        of the strings this scene has printed in its life are asserted
+        absent, because "not wired yet" is now as stale as "on purpose" was.
         """
         handoff = crossing.crossing_handoff(self.legacy, self.entry())
         self.assertNotIn("left_empty_on_purpose", handoff.reason)
         self.assertNotIn("has_no_population_table", handoff.reason)
-        self.assertIn("bg1001_roster_has_no_crossing_handoff_yet", handoff.reason)
+        self.assertNotIn("has_no_crossing_handoff_yet", handoff.reason)
+        self.assertIn("repopulated_from_bg1001_roster", handoff.reason)
         self.assertNotIn(
             columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
             world_population_handoff.SCENES_INTENTIONALLY_UNPOPULATED,
         )
-        self.assertNotIn(
+        self.assertIn(
             "bg1001_roster", world_population_handoff.ROSTER_COMPOSERS,
         )
 
-    def test_a_clear_drops_both_membership_fields_together(self):
+    def test_a_census_hands_over_both_membership_fields_together(self):
         """The pair that cannot be half-taken.
 
-        A caller that queues the clear and leaves the frozen state's
-        membership alone can have the whole town recomposed into the new scene
-        by one ChooseNPC.  The handoff answers with both fields or neither.
+        ~~A caller that queues the clear and leaves the frozen state's
+        membership alone can have the whole town recomposed into the new
+        scene by one ChooseNPC.~~  The hazard is unchanged and the answer is
+        unchanged - both fields or neither - but this crossing now composes
+        a CENSUS, so "neither" is the wrong half to assert: a census that
+        cleared the membership would leave the frozen state saying the
+        client holds nobody while it holds seven, which is the same
+        ChooseNPC defect from the other side.
         """
         reset = crossing.crossing_handoff(
             self.legacy, self.entry()).membership_reset
-        self.assertTrue(reset.clears_everything)
-        self.assertIsNone(reset.population_indices)
-        self.assertIsNone(reset.population_refresh_anchor)
+        self.assertFalse(reset.clears_everything)
+        self.assertEqual(len(reset.population_indices), 7)
+        self.assertEqual(reset.population_refresh_anchor, (0.0, 0.0, 0.0))
 
     def test_an_unreadable_entry_is_unavailable_and_names_itself(self):
         handoff = crossing.crossing_handoff(
@@ -217,17 +222,18 @@ class CrossingConsoleLineTests(unittest.TestCase):
         otherwise, which is what ``test_dispatched_true_is_the_only_way_to_
         get_a_yes`` below drives.
 
-        ``kind=clear``/``slot=before_teleport`` STILL, round ``vwekfq``
-        (LANE-A): see ``test_the_sea_crossing_composes_a_clear_before_the_
-        teleport``.
+        ~~``kind=clear``/``slot=before_teleport`` STILL, round ``vwekfq``
+        (LANE-A).~~  ``kind=census``/``slot=after_teleport`` since chief
+        round R405/y8fm7z: see
+        ``test_the_sea_crossing_composes_its_cast_after_the_teleport``.
         """
         line = crossing.crossing_handoff_console_line(
             crossing.crossing_handoff(self.legacy, self.entry()))
         self.assertIn("dispatched=NO", line)
         self.assertIn("composed=YES", line)
         self.assertIn("scene=17", line)
-        self.assertIn("kind=clear", line)
-        self.assertIn("slot=before_teleport", line)
+        self.assertIn("kind=census", line)
+        self.assertIn("slot=after_teleport", line)
 
     def test_dispatched_true_is_the_only_way_to_get_a_yes(self):
         line = crossing.crossing_handoff_console_line(
@@ -316,7 +322,7 @@ class DispatchPrintsTheLineTests(unittest.TestCase):
         )
         self.assertTrue(
             lines[-5].startswith(crossing.CONSOLE_TAG + " "), lines)
-        self.assertIn("kind=clear", lines[-5])
+        self.assertIn("kind=census", lines[-5])
         self.assertIn("dispatched=NO", lines[-5])
         self.assertTrue(lines[-4].startswith("M2_SEA_DESTINATION "), lines)
         self.assertTrue(lines[-3].startswith("WORLD_M2_SEA_MAP "), lines)

@@ -176,6 +176,12 @@ COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     # second writer by accident.
     "job": ("/job 16",),
     "skill": ("/skill all",),
+    # `sandbox` (LANE-GM round `nkb608`) reads the CHARACTER's row and writes
+    # nothing, which puts it on the same footing as `staged` above and is
+    # worth the same run for the same reason: a readback that reached for the
+    # login-scene maps while answering, or that wrote while reading, would
+    # leave this file's guarantee resting on a docstring.
+    "sandbox": ("/sandbox",),
 }
 
 # Lines that are not valid commands at all, run through the same door: a

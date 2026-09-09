@@ -90,7 +90,10 @@ __all__ = [
     "NAME_COLOUR_NOT_DRAWN",
     "R324A_ROWS",
     "SCENE_STRIDE",
+    "SCENE_ID_CEILING",
+    "MOB_IDENTITY_BASE",
     "SWEEP_RESERVED_IDENTITIES",
+    "scene_band_bounds",
     "is_player_identity",
     "is_mob_identity",
     "identity_is_drawn",
@@ -187,10 +190,32 @@ SCENE_STRIDE = 0x1000
 #: the sweep's real tuple, so shrinking it here goes red.
 SWEEP_RESERVED_IDENTITIES = 64
 
-#: The most negative identity this allocator will ever hand out, kept a full
-#: order of magnitude away from ``-2**63`` so a caller that adds an offset of
-#: its own cannot wrap the sign bit back to positive.
+#: HOW MANY SCENE BLOCKS THE BAND DECLARES, which is the ceiling on the
+#: scene component the way ``SCENE_STRIDE`` is the ceiling on the placement
+#: component.  A band that ascends with BOTH components (see
+#: :func:`mob_wire_identity`) has to know how many blocks it is stacking
+#: before it can hand out the first one, so this is a declared bound and not
+#: a derived one: a scene id at or above it is REFUSED rather than folded
+#: back onto scene 0's block.  ``gm/scene_catalog`` is the widest scene-id
+#: space this tree names -- 330 rows, ids 1..999 -- so 4096 leaves four
+#: times the room the catalogue uses, and the most negative identity the
+#: whole band can produce is -(64 + 4096*4096) = -16,777,280, which is
+#: eleven orders of magnitude above :data:`MOB_IDENTITY_FLOOR` (-2**62 is
+#: about -4.6e18; the ratio is 2.7e11).
+SCENE_ID_CEILING = 0x1000
+
+#: The most negative identity this allocator will ever hand out, kept one
+#: bit away from ``-2**63`` (a factor of two, not the "full order of
+#: magnitude" an earlier draft of this line claimed -- pf-adversary, round
+#: 6okcq4) so a caller that adds an offset of its own cannot wrap the sign
+#: bit back to positive.
 MOB_IDENTITY_FLOOR = -(2**62)
+
+#: The first (most negative) identity the band owns.  Every allocated value
+#: is this plus a flat offset, which is what makes the band's order a single
+#: total order rather than one order per scene.
+MOB_IDENTITY_BASE = -(
+    SWEEP_RESERVED_IDENTITIES + SCENE_ID_CEILING * SCENE_STRIDE)
 
 
 def is_player_identity(identity: int) -> bool:
@@ -247,8 +272,70 @@ def refuse_undrawable_identity(identity: int, *, what: str = "actor") -> int:
     return identity
 
 
+def scene_band_bounds(scene_id: int) -> tuple[int, int]:
+    """The (first, last) identity scene ``scene_id`` owns, both inclusive.
+
+    Every scene declares the ceiling of its own block through this pair
+    rather than through arithmetic spread over its callers, so "does scene
+    ``n``'s block run into scene ``n+1``'s?" is a question a test can ask
+    directly.  ``last - first + 1`` is always :data:`SCENE_STRIDE`, and a
+    scene id the band does not own is refused here for the same reason
+    :func:`mob_wire_identity` refuses it: a wrapped block hands two scenes
+    the same identity, and the client keys an actor BY its identity.
+    """
+    _refuse_scene_id(scene_id)
+    first = MOB_IDENTITY_BASE + scene_id * SCENE_STRIDE
+    return first, first + SCENE_STRIDE - 1
+
+
 def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     """The monster-band identity for one placement in one scene.
+
+    THE ORDER IS THE CONTRACT, NOT A SIDE EFFECT.  Identities ASCEND with
+    the placement index inside a scene, and ascend with the scene id across
+    scenes, so sorting a roster by identity reproduces the order the table
+    placed it in.  That sentence is the whole point of this function and it
+    must survive any future rewrite of the arithmetic.
+
+    WHO WILL DEPEND ON IT, AND WHEN.  Nothing in ``src/`` calls this
+    function today: every ``FieldMob`` still derives ``0x2000 +
+    placement_index + 1`` (``field_mobs`` line ~376), so the readers below
+    depend on the LEGACY formula's rise, not on this one.  They inherit the
+    dependency the day beat 2 flips a scene onto the band, which is why the
+    order is written down now rather than discovered then.  THREE readers,
+    counted after pf-adversary (round 6okcq4) measured that an earlier draft
+    of this list had four:
+
+      * ``field_mobs.load_roster`` hands its rows out in PLACEMENT order and
+        does not sort;
+      * ``mob_combat.CombatLedger`` REFUSES a roster that is not in ascending
+        identity order rather than sorting for its caller (reason
+        ``ledger_not_sorted``), and ``runtime`` opens that ledger during
+        session build -- so a descending band does not cost one frame, it
+        costs LOGIN, for every player;
+      * ``mob_ai_control.open_register`` sorts by identity SILENTLY, so with
+        a descending band its row zero is a different monster from the one
+        the ledger calls first, and nothing anywhere says so out loud.
+
+    THE CENSUS IS NOT ONE OF THEM, and an earlier draft of this docstring
+    said it was.  Every census composer re-sorts by distance to the player
+    before encoding -- ``field_mobs.nearest_first`` (line ~2164) and
+    ``world_population_*.census_order`` (line ~139 in each) both key on
+    ``((dx**2 + dy**2 + dz**2), placement_index)`` -- so the order actors go
+    out in is a pure function of the viewer's anchor and the table, and
+    permuting the roster does not move one byte of it.  Consequence worth
+    writing down: the census wire order is NOT a reason to prefer this fix
+    over re-sorting ``load_roster``, though the COO letter that approved
+    this one gave it as such.
+
+    Before this function ascended, the four agreed only because the legacy
+    ``0x2000 + placement_index + 1`` formula happened to rise; the collision
+    is written up in ``tests/test_mob_identity_sign_inbound.py`` and in COO
+    decision ``20260908_1642_COO-DECISION-roster-order-take-option-three``,
+    which picked this fix over re-sorting ``load_roster`` (that would change
+    the order actors go out on the census wire, which is a screen question)
+    and over teaching ``open_ledger`` to sort (that would delete another
+    module's stated reason for refusing).
 
     Non-positive by construction (rule 2), never 0 (rule 4), and carrying a
     SCENE COMPONENT -- which is the half ``FieldMob.actor_identity`` is
@@ -256,10 +343,8 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
     placement_index + 1`` with no scene component, so two scenes' placements
     collide").  Two different scenes cannot produce the same value here.
     """
-    _refuse_non_integer(scene_id, "scene id")
+    _refuse_scene_id(scene_id)
     _refuse_non_integer(placement_index, "placement index")
-    if scene_id < 0:
-        raise MobIdentitySignError(f"scene id {scene_id} is not a scene id")
     if placement_index < 0:
         raise MobIdentitySignError(
             f"placement index {placement_index} is not a placement index"
@@ -270,15 +355,16 @@ def mob_wire_identity(scene_id: int, placement_index: int) -> int:
             f"{SCENE_STRIDE} -- widen SCENE_STRIDE in one commit with the "
             "inverse rather than letting one scene's block run into the next"
         )
-    identity = -(
-        SWEEP_RESERVED_IDENTITIES + 1
-        + scene_id * SCENE_STRIDE + placement_index
-    )
-    if identity < MOB_IDENTITY_FLOOR:
-        raise MobIdentitySignError(
-            f"scene {scene_id} placement {placement_index} lands at "
-            f"{identity}, below the monster-band floor {MOB_IDENTITY_FLOOR}"
-        )
+    identity = MOB_IDENTITY_BASE + scene_id * SCENE_STRIDE + placement_index
+    # NO FLOOR CHECK AND NO SIGN CHECK HERE, ON PURPOSE.  Both guards were
+    # written and both were measured DEAD by pf-adversary (round 6okcq4):
+    # with the scene id capped at SCENE_ID_CEILING and the placement at
+    # SCENE_STRIDE, this function's whole range is [MOB_IDENTITY_BASE, -65],
+    # so neither branch can fire, and deleting either left the suite green.
+    # mob_combat line ~644 states the house rule this follows: "a named
+    # refusal which cannot occur is a lie told to whoever counts them".  The
+    # two ceilings above are what keep the range where it is; the range
+    # itself is asserted in test_the_whole_band_stays_clear_of_the_floor.
     return identity
 
 
@@ -300,8 +386,13 @@ def scene_and_placement_for(identity: int) -> tuple[int, int]:
             f"identity {identity} is below the monster-band floor "
             f"{MOB_IDENTITY_FLOOR}"
         )
-    flat = -identity - 1 - SWEEP_RESERVED_IDENTITIES
+    flat = identity - MOB_IDENTITY_BASE
     if flat < 0:
+        raise MobIdentitySignError(
+            f"identity {identity} is below the first identity the band owns "
+            f"({MOB_IDENTITY_BASE})"
+        )
+    if flat >= SCENE_ID_CEILING * SCENE_STRIDE:
         raise MobIdentitySignError(
             f"identity {identity} is inside the reserved head this band does "
             f"not hand out (the first {SWEEP_RESERVED_IDENTITIES} negative "
@@ -422,6 +513,25 @@ def is_targetable_identity(identity: int) -> bool:
     if identity >= 2**63 or identity < -(2**63):
         return False
     return True
+
+
+def _refuse_scene_id(scene_id: Any) -> None:
+    """One gate for the scene component, so both entry points agree.
+
+    :func:`scene_band_bounds` and :func:`mob_wire_identity` must refuse the
+    same set of scene ids or a caller could be told a block exists and then
+    be refused when it asks for a row inside it.
+    """
+    _refuse_non_integer(scene_id, "scene id")
+    if scene_id < 0:
+        raise MobIdentitySignError(f"scene id {scene_id} is not a scene id")
+    if scene_id >= SCENE_ID_CEILING:
+        raise MobIdentitySignError(
+            f"scene id {scene_id} is at or above the declared block ceiling "
+            f"{SCENE_ID_CEILING} -- widen SCENE_ID_CEILING in one commit "
+            "with the inverse rather than letting a scene wrap onto another "
+            "scene's block"
+        )
 
 
 def _refuse_non_integer(value: Any, what: str = "identity") -> None:

@@ -108,6 +108,7 @@ from __future__ import annotations
 from typing import Any
 
 from .learn_skill_result_frame import (
+    LEARN_SKILL_RESULT_COUNT_TAG,
     LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE,
     LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET,
     LEARN_SKILL_RESULT_RECORD_WIRE_SIZE,
@@ -369,6 +370,50 @@ def measured_trailing_byte(pc: bytes, record_count: int) -> int:
     return trailing
 
 
+def measured_record_count(pc: bytes) -> int:
+    """The record count CARRIED BY ``pc``, decoded, never ``len(skill_ids)``.
+
+    pf-adversary (round `jty60h`, D3) named the defect this closes: every
+    number in the token except the trailing byte was measured off something
+    the caller had in hand BEFORE the frame existed, so a mutant that stops
+    composing -- or stops appending the composed action to the login list --
+    leaves ``rows=4`` printing about a wire that carries nothing.  The count
+    is read out of the payload's own u16 field and then handed back through
+    the same decoder that ``measured_trailing_byte`` uses, so a byte string
+    that merely starts with the right tag cannot answer.
+
+    Raises ``SkillListAtLoginError`` and never a bare decoder exception, the
+    same one-exception-class promise the rest of this module makes.
+    """
+    start = LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+    header = bytes(pc[start:start + 3])
+    if len(header) != 3 or header[0] != LEARN_SKILL_RESULT_COUNT_TAG:
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed pc carries no readable record-count field at "
+            "offset %d, so the row count could not be measured at all"
+            % (start,),
+        )
+    declared = int.from_bytes(header[1:3], "little")
+    payload_size = (
+        LEARN_SKILL_RESULT_PAYLOAD_BASE_SIZE
+        + LEARN_SKILL_RESULT_RECORD_WIRE_SIZE * declared
+    )
+    try:
+        records, _trailing = decode_learn_skill_result_payload(
+            pc[start:start + payload_size]
+        )
+    except Exception as error:      # noqa: BLE001 - same reasoning as
+        # `measured_trailing_byte`: a payload this module just composed and
+        # cannot read back is not a frame to report a row count about.
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed payload could not be decoded back, so the record "
+            "count could not be measured at all: %s" % (error,),
+        ) from error
+    return len(records)
+
+
 def make_skill_list_response(
     legacy: Any, skill_ids: "tuple[int, ...] | list[int]",
 ) -> tuple[bytes, bytes]:
@@ -572,21 +617,103 @@ def repository_root() -> "Any":
     return Path(__file__).resolve().parents[2]
 
 
+def _seam_call_scopes(tree: "Any") -> "Any":
+    """Every call to ``LOGIN_SEAM_SYMBOL``, with the def chain around it.
+
+    Returns one tuple per call node: the enclosing ``FunctionDef`` chain,
+    OUTERMOST FIRST, empty when the call sits at module level (which runs at
+    import).  ``ClassDef`` is deliberately not part of the chain -- a method
+    is reached through an instance, and the name a caller spells is the
+    method's, which is what the reachability rule below looks for.
+    """
+    import ast
+
+    sites = []
+
+    def walk(node: "Any", stack: "Any") -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Call):
+                func = child.func
+                name = getattr(func, "attr", getattr(func, "id", ""))
+                if name == LOGIN_SEAM_SYMBOL:
+                    sites.append(tuple(stack))
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, stack + [child])
+            else:
+                walk(child, stack)
+
+    walk(tree, [])
+    return tuple(sites)
+
+
+def _named_outside_its_own_body(tree: "Any", func_node: "Any") -> bool:
+    """True when this module spells ``func_node``'s name somewhere else.
+
+    "Somewhere else" excludes the def's ENTIRE own subtree, so a function
+    that only calls itself does not vouch for itself.  Both spellings count:
+    a bare ``Name`` (``helper()``) and an ``Attribute`` (``self.helper()``),
+    because the seam's carrier in ``runtime.py`` is reached the second way.
+    """
+    import ast
+
+    own = {id(node) for node in ast.walk(func_node)}
+    target = func_node.name
+    for node in ast.walk(tree):
+        if id(node) in own:
+            continue
+        if isinstance(node, ast.Name) and node.id == target:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == target:
+            return True
+    return False
+
+
 def _calls_the_seam(tree: "Any") -> bool:
-    """True when this parsed module CALLS ``LOGIN_SEAM_SYMBOL`` somewhere.
+    """True when this module calls ``LOGIN_SEAM_SYMBOL`` FROM REACHABLE CODE.
 
     Split out of ``seam_carrier`` when the search widened from one file to
     the auto-imported hook package: two copies of an AST walk is how the two
     halves of one answer drift apart.
-    """
-    import ast
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            name = getattr(func, "attr", getattr(func, "id", ""))
-            if name == LOGIN_SEAM_SYMBOL:
-                return True
+    REACHABILITY IS THE POINT, AND IT IS WHY THIS IS NOT A PLAIN WALK
+    (pf-adversary D7, round ``ixbs2f``, paid here).  The first version asked
+    only "is there a call node anywhere in this file".  A mutant that deletes
+    the ONE line on the login path -- ``skill_list_action =
+    self._skill_list_login_action(legacy)`` -- while leaving the method it
+    called in place still answered ``runtime``: the call node inside the now
+    dead method is still a call node.  A server that sends nothing at login
+    would print ``sent_by=runtime ... RESULT=ARMED`` in the very token an
+    operator pastes as ``HEADLESS_PROOF:`` for GT-307.  The suite caught that
+    mutant on eight tests, but the token line -- the one artifact that
+    travels alone, into a ticket, away from the suite -- did not.
+
+    THE RULE, stated so a reader can check it against the code.  A call
+    counts when every enclosing def, except the OUTERMOST one, has its name
+    spelled somewhere else in the same module.  The exception for the
+    outermost def is not a loophole being papered over: a module-level def is
+    exactly what another file imports and calls (``runtime.py``'s own
+    ``make_state_class`` is called from ``app.py`` and appears nowhere in
+    ``runtime.py`` outside its own body), so demanding an in-file caller for
+    it would answer ``module_only`` on the tree that ships today.
+
+    WHAT THIS STILL CANNOT SEE, said rather than implied.  A name spelled in
+    dead code of another function vouches for the carrier just as well as a
+    live call does -- this is an in-file NAME check, not an execution proof,
+    and no static check in this file claims to be one.  Nothing here reads
+    ``app.py`` to confirm the outermost def is really imported.  What it does
+    buy is the property the token needs: deleting the login-path call, and
+    nothing else, flips the token to ``module_only``.
+    """
+    for chain in _seam_call_scopes(tree):
+        if not chain:
+            # Module level: it runs at import, so there is nobody to name it.
+            return True
+        # chain[0] is the outermost def -- see the docstring for why it is
+        # exempt.  Everything nested inside it has to be named to count.
+        if all(
+            _named_outside_its_own_body(tree, node) for node in chain[1:]
+        ):
+            return True
     return False
 
 
@@ -679,7 +806,7 @@ def seam_carrier(runtime_path: "Any" = None, hooks_dir: "Any" = None) -> str:
 
 def headless_token(
     character_id: int, skill_ids: "tuple[int, ...]", frame: bytes,
-    sent_by: str, trailing: int,
+    sent_by: str, trailing: int, *, pc: bytes,
 ) -> str:
     """The one ASCII line GT-307 names as its ``HEADLESS_PROOF:``.
 
@@ -692,13 +819,35 @@ def headless_token(
     turned into a token reading ``trailing_u8=0`` about a frame carrying
     ``0x01``.  Nothing here re-derives an id from the class table -- that is
     the substitution GT-307 exists to rule out.
+
+    ``rows`` COMES OFF THE WIRE (round `jty60h`, pf-adversary D3 again, one
+    field to the left).  It used to be ``len(skill_ids)`` -- the list the
+    store returned, which exists whether or not anything was ever composed
+    or appended -- so the single line an operator pastes into ``GT-307``'s
+    ``HEADLESS_PROOF:`` travelled alone saying ``rows=4`` about a login that
+    sent no frame at all.  ``pc`` is keyword-only and has no default on
+    purpose: a caller that has no composed pc cannot produce a token by
+    forgetting an argument, and the two counts are compared here rather than
+    trusted, so the store's answer and the wire's answer cannot disagree
+    inside one line.  ``ids`` still comes from the store, because the
+    substitution GT-307 rules out is exactly "the ids on the wire are not
+    the ids on the row".
     """
+    on_the_wire = measured_record_count(pc)
+    if on_the_wire != len(skill_ids):
+        raise SkillListAtLoginError(
+            REFUSE_PAYLOAD_UNREADABLE,
+            "the composed pc carries %d records but the store returned %d "
+            "skill ids; a token that reported either number alone would be "
+            "a measurement of nothing"
+            % (on_the_wire, len(skill_ids)),
+        )
     return (
         "SKILL_LIST_AT_LOGIN cid=%d rows=%d ids=(%s) trailing_u8=%d "
         "frame_bytes=%d sent_by=%s"
         % (
             character_id,
-            len(skill_ids),
+            on_the_wire,
             ",".join(str(skill_id) for skill_id in skill_ids),
             trailing,
             len(frame),
@@ -859,7 +1008,7 @@ def main(argv: "list[str] | None" = None) -> int:
     _print_console_line(
         headless_token(
             args.character, skill_ids, frame, seam_carrier(args.runtime),
-            measured_trailing_byte(pc, len(skill_ids)),
+            measured_trailing_byte(pc, len(skill_ids)), pc=pc,
         )
     )
     return 0

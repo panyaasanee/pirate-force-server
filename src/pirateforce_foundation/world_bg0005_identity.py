@@ -347,18 +347,18 @@ _RESOLVED_ROWS = (
     (32, 1831, 135, "P_MALE_005_001_STARK", "Stark", "Port Royale", 70, 0, 71640, 2),
     (33, 1832, 136, "M073_000_001_SP3", "Terry", "Black Market Trader", 70, 0, 71640, 2),
     (34, 1833, 137, "P_FEMALE_003_000_KATE", "Kate", "Cute Girl Pirate", 70, 0, 71640, 2),
-    (35, 1834, 138, "M000_000_002_SP1", "Blind Hound", "", 61, 1, 45704, 1),
-    (36, 1835, 139, "M005_000_001_SP1", "Sparkler Antelope", "", 62, 1, 48209, 1),
-    (37, 1836, 140, "M024_001_001_SP1", "Penguin Staff Sergeant", "", 62, 1, 48209, 1),
-    (38, 1837, 141, "M002_000_000_SP1", "Two Horns Tiger", "", 63, 1, 50817, 1),
-    (39, 1838, 142, "M019_000_001_SP1", "Golden Cat Navy Group", "", 64, 1, 53557, 1),
-    (40, 1839, 143, "M011_001_001_SP1", "Steel blade Eagle", "", 67, 1, 62350, 1),
+    (35, 1834, 138, "M000_000_002_SP1;M000_000_002_SP2", "Blind Hound", "", 61, 1, 45704, 1),
+    (36, 1835, 139, "M005_000_001_SP1;M005_000_001_SP2", "Sparkler Antelope", "", 62, 1, 48209, 1),
+    (37, 1836, 140, "M024_001_001_SP1;M024_001_001_SP2", "Penguin Staff Sergeant", "", 62, 1, 48209, 1),
+    (38, 1837, 141, "M002_000_000_SP1;M002_000_000_SP2", "Two Horns Tiger", "", 63, 1, 50817, 1),
+    (39, 1838, 142, "M019_000_001_SP1;M019_000_001_SP2", "Golden Cat Navy Group", "", 64, 1, 53557, 1),
+    (40, 1839, 143, "M011_001_001_SP1;M011_001_001_SP2", "Steel blade Eagle", "", 67, 1, 62350, 1),
     (41, 1840, 144, "M011_001_001_SP3", "Hard Blade Eagle", "", 68, 1, 65511, 1),
-    (42, 1841, 145, "M001_000_003_N", "Black braids Pirates", "", 64, 1, 53557, 1),
+    (42, 1841, 145, "M001_000_003_N;M001_000_003_SP1", "Black braids Pirates", "", 64, 1, 53557, 1),
     (43, 1842, 146, "M001_000_003_SP3", "Black Jack", "", 65, 1, 56377, 1),
-    (44, 1843, 147, "M001_000_001_SP2", "Red beard Pirate Group", "", 66, 1, 59306, 1),
+    (44, 1843, 147, "M001_000_001_SP2;M001_000_001_SP3", "Red beard Pirate Group", "", 66, 1, 59306, 1),
     (45, 1844, 148, "M010_000_001_SP3", "Red Devil", "", 66, 1, 59306, 1),
-    (46, 1845, 149, "M003_000_000_SP1", "Ned King Kong", "", 68, 1, 65511, 1),
+    (46, 1845, 149, "M003_000_000_SP1;M003_000_000_SP2", "Ned King Kong", "", 68, 1, 65511, 1),
     (47, 1846, 150, "M003_000_000_SP3", "Ned apes", "", 69, 1, 68789, 1),
     (48, 1847, 643, "P_FEMALE_006_001_AMINA", "Amina", "Nomad Maritime", 70, 0, 71640, 2),
     (49, 1848, 237, "MAP001_000_000", "Mirage reel", "", 105, 0, 228055, 2),
@@ -372,7 +372,7 @@ _RESOLVED_ROWS = (
     (57, 1856, 523, "M015_001_001_N", "Jet cat thieves No.5", "", 62, 1, 48209, 1),
     (58, 1857, 525, "M015_001_001_N", "Jet cat thieves No.6", "", 67, 1, 62350, 1),
     (59, 1862, 854, "M010_001_000_N", "Elephant Oz", "Navy Spy", 75, 0, 87072, 2),
-    (105, 1863, 7044, "M024_001_001_SP1", "Penguin Searcher", "Serious and responsible", 99, 0, 192488, 2),
+    (105, 1863, 7044, "M024_001_001_SP1;M024_001_001_SP2", "Penguin Searcher", "Serious and responsible", 99, 0, 192488, 2),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
@@ -617,9 +617,17 @@ def _self_check() -> None:
         if cline_row_id < 1:
             raise Bg0005IdentityError(
                 "set %d carries no CLINE row locator" % template_id)
-        if ";" in outfit:
+        # ROUND 2a2jqp (LANE-B, COO-DECISION 2026-09-08 13:41 +07:00).
+        # ~~A ';' in the shipped column was refused, and the table shipped
+        # the first token.~~  The owner ruling PANYA `1313` says s_OUTFIT
+        # decides nothing about who an actor is, and `RE-296` measured the
+        # client tokenising the cell ITSELF and keeping every token, so the
+        # WHOLE cell is what the client reads and what this table now
+        # ships.  What is refused instead is a cell that cannot name an
+        # avatar at all: an empty token on either side of a ';'.
+        if any(not token for token in outfit.split(";")):
             raise Bg0005IdentityError(
-                "set %d ships a multi-variant outfit string" % template_id)
+                "set %d ships an empty avatar token" % template_id)
         if not outfit or not outfit.isascii():
             raise Bg0005IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)

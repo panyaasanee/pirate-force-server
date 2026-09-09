@@ -37,8 +37,18 @@ ZERO PRODUCTION CALLER, same posture as everything it joins: nothing in
 """
 from __future__ import annotations
 
+from . import skill_context_census
 from . import skill_learn_validator
 from .store import SQLiteStore
+
+
+#: The two refusals this module raises that do not come from
+#: `refusal_to_learn`, named rather than left to a caller reading the
+#: sentence.  Both are "nobody has ever written this", not "the answer is
+#: no": a caller that reports them as "you cannot afford it" would be
+#: telling the player something measured about a value nobody measured.
+REFUSED_BALANCE_NEVER_WRITTEN = "skill_point_balance_has_never_been_written"
+REFUSED_LEVEL_NEVER_ADJUDICATED = "character_level_has_never_been_adjudicated"
 
 
 def learn_skill_spend(
@@ -87,10 +97,44 @@ def learn_skill_spend(
         raise skill_learn_validator.SkillLearnValidatorError(
             "character %r has no skill_points value yet (NULL) -- cannot "
             "learn a skill against an unmeasured balance "
-            "(COO-DECISION 20260901_1059)" % (character_id,)
+            "(COO-DECISION 20260901_1059)" % (character_id,),
+            reason=REFUSED_BALANCE_NEVER_WRITTEN,
         )
-    after = skill_learn_validator.skill_points_after_learning(
-        current, skill_id
+    # THE LEVEL GATE, AND THE END OF THE EIGHT-ID CEILING (LANE-CS round
+    # `jty60h`).  Until this round the only question asked here was "can she
+    # pay": a level 1 character could spend a point on a skill the client's
+    # own table marks `n_LEVEL_LEARN = 40`, and every skill id outside the
+    # 8-row starting-kit catalog died with a bare `KeyError` -- 2157 of the
+    # 2165 rows the client declares.  `skill_points_after_learning_declared`
+    # asks both questions against the full census and names its refusal.
+    #
+    # THE `KeyError` CONTRACT IS KEPT, on purpose.  An id the client's own
+    # table does not declare is still a lookup failure, not a game rule, so
+    # it is raised here as `KeyError` exactly as before rather than reaching
+    # the validator and coming back as a named refusal a caller would have
+    # to re-classify.  What changed is only which ids count as unknown.
+    if not skill_context_census.is_declared(skill_id):
+        raise KeyError(skill_id)
+    # The level comes from LANE-DB's own door, not from a column read here.
+    # `read_character_vitals_or_none` answers with a level only when the
+    # database really holds one and every vitals rule passes, and with None
+    # for every reason it does not (a stored `level = 0`, a column nobody
+    # seeded, a row that fails a rule).  This function needs exactly that
+    # split -- adjudicated, or refuse -- so it takes the door that draws it,
+    # and it does NOT fall back to "assume level 1": the same posture the
+    # NULL balance check above takes, for the same reason.
+    vitals = store.read_character_vitals_or_none(character_id)
+    if vitals is None:
+        raise skill_learn_validator.SkillLearnValidatorError(
+            "character %r has no adjudicated level yet -- cannot check a "
+            "skill's n_LEVEL_LEARN against a level nobody wrote "
+            "(COO-DECISION 20260901_1059, same rule as the NULL balance "
+            "above)" % (character_id,),
+            reason=REFUSED_LEVEL_NEVER_ADJUDICATED,
+        )
+    level = vitals.level
+    after = skill_learn_validator.skill_points_after_learning_declared(
+        current, level, skill_id
     )
     cost = current - after
     return store.spend_skill_points(character_id, cost)

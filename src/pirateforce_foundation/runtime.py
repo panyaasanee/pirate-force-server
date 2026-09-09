@@ -297,6 +297,118 @@ from .action_ack import (
 )
 
 
+def selected_actor_identity(selected):
+    """The signed identity of THIS session's own actor, from one dispenser.
+
+    R4, the player half (PANYA ``20260908_1420``: "one dispenser for the
+    whole circuit, and guard the value 0"; owner assigned to chief by
+    COO-DECISION ``20260908_1642``, queue slot 4).
+
+    WHAT WAS HERE BEFORE, AND WHY IT WAS NOT ENOUGH.  Nine call sites in
+    this file each spelled the player's identity by hand as
+    ``((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)``.  That expression is
+    the WIRE value -- exactly the unsigned qword ``v141.qwordtag`` (line
+    1131) puts on the socket -- and it is NOT the identity a caller means:
+    the monster half of the same circuit stopped reading it that way at the
+    combat door in R4 beat 0, where the inbound target goes through
+    ``mob_identity_sign.decode_wire_identity`` before anything compares it.
+    NOT "every inbound identity", and pf-adversary (R406, D6) was right to
+    strike that word out of the first draft of this docstring: of the five
+    inbound parse points ``decode_wire_identity``'s own docstring names,
+    only ``parse_action_vital``'s target is decoded at HEAD --
+    ``extract_choose_npc_identities``, ``parse_quest_operate_vital`` and
+    ``parse_choose_npc`` are still compared raw.  That is beat 0's
+    remaining debt, not this function's, and it is written down here so
+    nobody reads the sentence above as a claim that it is paid.
+    Two readings of one field is the exact defect that beat 0 was booted to
+    remove, so the player half reads the field the same way: compose the
+    wire qword, then hand it to the SAME decoder the monster half calls.
+
+    DERIVED (not measured end to end at all nine sites -- the label the
+    first draft used was too strong; pf-adversary R406, D9): this
+    changes no value in production today.
+    ``lifecycle.py`` mints ``hi = 0`` and ``lo = 0x10000000 + account_id *
+    0x10000 + selector + 1`` (refusing anything past ``0xFFFFFFFF``), so
+    every identity a live server has ever composed sits in
+    ``[0x10000001, 0xFFFFFFFF]``: positive, far under ``2 ** 63``, returned
+    unchanged by the decoder.  What the seam buys is that the sentence
+    "one dispenser for the whole circuit" becomes true as written rather
+    than true by luck.
+
+    WHAT IT DOES NOT BUY, MEASURED BY pf-adversary (R406, D2) WITH A
+    CONTROL, because the first draft of this docstring sold it: it does
+    NOT make "the day ``hi`` stops being zero" work.  Mint a character
+    with the top bit of ``hi`` set and the server still dies on that
+    session's first combat frame -- before this change at
+    ``mob_combat.check_attack_cadence`` (``value_out_of_range``), after it
+    at ``mob_viewer_link`` (``REFUSE_VIEWER_IDENTITY_NOT_POSITIVE``) --
+    because the CONSUMERS of a player identity still demand an unsigned,
+    positive one (``mob_viewer_link`` line ~186, ``action_ack`` line
+    ~114).  Reading signed is half a circuit; the other half is
+    ``encode_wire_identity`` at those consumers, and it is not in this
+    ticket.  Until it is, ``lifecycle.refuse_unmintable_identity`` keeps
+    the honest contract by refusing to mint a non-positive identity at
+    all, so no session is ever born that dies on its first frame.
+
+    THE ZERO GUARD IS NOT DECORATION.  ``mob_identity_sign
+    .IDENTITY_NOT_DRAWN`` is 0, the one identity the client throws away
+    before it draws anything; a session whose own actor composed to 0 would
+    be a player nobody -- including the player -- can see, and every
+    ``viewer_identity`` below would name that invisible actor as the viewer
+    a name colour is chosen for.  ``lo`` cannot be 0 today (it starts at
+    ``0x10000001``), so this refusal is unreachable from the live minter and
+    is a fence for the next one, in the owner's own words.
+
+    NOT A GUARD, IN THE SAME SENSE THE DECODER IS NOT.  This does not judge
+    whether the actor is targetable, in band, alive or in the scene -- it
+    only stops one number from having two meanings, and refuses the one
+    value that means "not drawn".
+
+    Raises ``mob_identity_sign.MobIdentitySignError`` for every refusal, so
+    a caller that wants a soft ``None`` catches one exception type rather
+    than guessing between ``TypeError`` and ``AttributeError``.
+    """
+    identity_hi = getattr(selected, "identity_hi", None)
+    identity_lo = getattr(selected, "identity_lo", None)
+    for part_name, part in (("identity_hi", identity_hi),
+                            ("identity_lo", identity_lo)):
+        # ``type(x) is int`` and not ``isinstance``: a bool is an int
+        # subclass, and ``True`` composing to identity 1 is a silent
+        # nonsense this file should not be able to spell.
+        if type(part) is not int:
+            raise mob_identity_sign.MobIdentitySignError(
+                f"selected character's {part_name} is {part!r}, not an int; "
+                "this session has no composable actor identity"
+            )
+        # R406 pf-adversary D4, and the standard is the tree's own: the
+        # three composers that predate this one
+        # (hostile_hp_link_hypothesis, damage_hp_link_hypothesis,
+        # npc_hp_link_hypothesis) all range-check each half BEFORE the
+        # mask.  Without this, the mask is silent data loss in both
+        # directions, measured: ``identity_hi = -1`` composed to a
+        # NEGATIVE identity -- the monster band -- and was returned as if
+        # it were a real player, and ``identity_hi = 2 ** 32`` and
+        # ``identity_hi = 0`` composed to the SAME identity, so two
+        # different rows in the characters table became one actor.  The
+        # columns are plain ``INTEGER NOT NULL`` with no CHECK, so nothing
+        # below this line would have noticed either.
+        if not 0 <= part <= 0xFFFFFFFF:
+            raise mob_identity_sign.MobIdentitySignError(
+                f"selected character's {part_name} is {part}, outside the "
+                "unsigned 32-bit column it is stored in; refusing to mask "
+                "it into a different actor"
+            )
+    wire = ((identity_hi & 0xFFFFFFFF) << 32) | (identity_lo & 0xFFFFFFFF)
+    identity = mob_identity_sign.decode_wire_identity(wire)
+    if not mob_identity_sign.identity_is_drawn(identity):
+        raise mob_identity_sign.MobIdentitySignError(
+            "selected character composes to the one identity the client "
+            "never draws (IDENTITY_NOT_DRAWN); refusing to name an "
+            "invisible actor as this session's own"
+        )
+    return identity
+
+
 def _active_arena_version(scenario) -> str:
     """Derive a label only while an opt-in Arena branch is active."""
     return "V2" if scenario.basic_faction is not None else "V1"
@@ -2072,11 +2184,109 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "foundation_v111_merge_wrong_sequence_no_reply"
                 )
                 return []
-            # Build the frozen exact response before opening the persistence
-            # transaction. No successful bytes are queued unless the later
-            # repository call commits the allowlisted post-state.
-            pc, frame = legacy.make_item_operate_stack_merge_success()
+            # Build the response before opening the persistence transaction,
+            # and DERIVE it from the bag this character actually holds.
+            #
+            # pf-adversary D1 on R403 measured what the frozen golden costs
+            # once STARTING_BACKPACKS grows: legacy.make_item_operate_stack_
+            # merge_success() hardcodes identity 1 at quantity 2, so a
+            # starting bag whose identity 1 begins at quantity 2 commits a
+            # stack of 3 and tells the client 2, with the success counter
+            # moving.  Membership in merged_v111_states() cannot catch that
+            # -- the committed bag IS a member; it is simply not the merge of
+            # the bag that was commanded.  Deriving fixes both halves at once:
+            # the bytes describe this bag, and the post-check below has an
+            # exact state to compare against instead of a set.
+            #
+            # For today's single bag the bytes are provably unchanged:
+            # make_item_merge_delta_response re-derives the V111 case and
+            # raises "generic item-merge response drifted from the V111
+            # golden" if its result is not byte-identical to the frozen
+            # legacy response.  No successful bytes are queued unless the
+            # later repository call commits exactly this post-state.
             before = self.foundation.backpack
+            try:
+                mergeable = inventory.can_merge_v111(before)
+            except Exception as exc:
+                # pf-adversary D-A on this branch, HIGH, measured: a session
+                # that never loaded a Backpack.  ReadOnlyFoundationSession
+                # (session.py, installed as the session_factory whenever
+                # app.py is given --scene-load) sets `selected` and leaves
+                # `backpack` at None, and this dispatch has no scenario gate.
+                # The old code handed that None to merge_v111_stack() INSIDE
+                # the try below, where the session's own PermissionError was
+                # absorbed; can_merge_v111 catches only ValueError, so moving
+                # the question ahead of that try turned a refusal into an
+                # AttributeError out of dispatch() -- the exact shape this
+                # round exists to remove, relocated from after the write to
+                # before it.  Absorb it here, name the cause, write nothing.
+                self.events.append(
+                    f"foundation_v111_merge_unusable_backpack_no_reply_{exc!r}"
+                )
+                return []
+            if not mergeable:
+                # No mergeable pair means no post-state to derive, so there
+                # is nothing to write and nothing to answer.  The
+                # exact-envelope check above proves the REQUEST is the V111
+                # one, never that the HOLDER can still perform it.
+                #
+                # A bag that is ALREADY a merged state is the ordinary
+                # second click, and it keeps the name it has always had:
+                # deriving moved this check ahead of the repository call,
+                # which used to be the thing that reported a replay (it
+                # returned applied=False).  Renaming that event would have
+                # made a replay indistinguishable from a malformed bag on
+                # the console.
+                if before in inventory.merged_v111_states():
+                    self.events.append("foundation_v111_merge_replay_no_reply")
+                else:
+                    self.events.append(
+                        "foundation_v111_merge_no_merged_state_no_reply"
+                    )
+                return []
+            expected_after = inventory.merged_v111_state(before)
+            merged_row = next(
+                item for item in expected_after.items if item.identity == 1
+            )
+            # The two things the COMMAND says, asked of the state the write
+            # would produce.  pf-adversary D-B and D-E on this branch, both
+            # measured, both this patch's own:
+            #
+            # * D-E: `is_exact_merge_request` pins the request to
+            #   V111_MERGE_FIELDS = (op 4, destination slot 0, identity 3),
+            #   and NOTHING anywhere compared that destination against where
+            #   the merge actually landed.  A bag holding identity 1 at slot
+            #   5 committed into slot 5, replied with slot 5, and reported
+            #   success.  origin/main refused that bag by accident -- its
+            #   frozen post-state carried slot 0 -- and deriving removed the
+            #   accident without replacing it.  This is the replacement.
+            # * D-B: can_merge_v111 admits any total in the u16 range,
+            #   including 0 and 1, and the composer refuses a merged
+            #   quantity below 2 with a ValueError.  With the composer's
+            #   try/except gone (deliberately, so its drift guard stays
+            #   loud) that ValueError would leave dispatch(). Not reachable
+            #   today -- no write path produces a quantity-0 row -- but the
+            #   comment that used to stand here asserted it could not happen
+            #   at all, and that was measured false.
+            if (
+                merged_row.slot != inventory.V111_MERGE_FIELDS[1]
+                or merged_row.quantity < 2
+            ):
+                self.events.append(
+                    "foundation_v111_merge_post_state_is_not_the_command_"
+                    f"no_reply_slot{merged_row.slot}_qty{merged_row.quantity}"
+                )
+                return []
+            # No try/except around the composer ON PURPOSE.  With the two
+            # checks above standing, the only exception it can still raise is
+            # its own drift guard -- "generic item-merge response drifted
+            # from the V111 golden" -- which means the frozen golden and the
+            # derivation disagree.  That is a build-level fault, it happens
+            # BEFORE any write, and the pre-existing contract for a builder
+            # failure here is to propagate (test_wrong_sequence_builder_and_
+            # repository_failures_do_not_mutate pins it).  Swallowing it
+            # would hide exactly the canary this round installed.
+            pc, frame = make_item_merge_delta_response(legacy, merged_row, 3)
             try:
                 applied = self.foundation.merge_v111_stack()
             except Exception as exc:
@@ -2092,13 +2302,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not applied:
                 self.events.append("foundation_v111_merge_replay_no_reply")
                 return []
-            if self.foundation.backpack not in inventory.merged_v111_states():
+            if self.foundation.backpack != expected_after:
                 # The row is already written -- the repository call above
                 # committed before this line ran.  Raising here would leave
                 # dispatch() with an exception AFTER the write, which is the
                 # one shape CORE-REQUEST 20260908_0206 asked to remove: the
                 # bytes are dropped, the counter does not move, and the
                 # connection survives to say so.
+                #
+                # The comparison is against THIS bag's post-state, not
+                # against membership in merged_v111_states().  pf-adversary
+                # D3 on R403 measured that the set form could not fire on
+                # any production input (the store refuses outside the set
+                # before writing), while the mismatch it was supposed to
+                # catch -- committed one thing, answered another -- walked
+                # straight through it.
                 self.events.append(
                     "foundation_v111_merge_committed_unknown_state_no_reply"
                 )
@@ -2207,7 +2425,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append("item_move_hypothesis_replay_no_reply")
                 return []
             if self.foundation.backpack != HYPOTHESIZED_V111_SLOT2_BACKPACK:
-                raise RuntimeError("committed HYP-PF-008 Backpack state mismatch")
+                # The fourth post-commit raise, byte-for-byte the shape
+                # CORE-REQUEST 20260908_0206 asked to delete and the one
+                # R403 left behind (pf-adversary D2).  The row is written by
+                # the time this line runs, so an exception here unwinds past
+                # the accept loop in the frozen listener -- which has a
+                # try/finally around dispatch() and no except -- dropping
+                # every player on the process over one character's bag.
+                self.events.append(
+                    "item_move_hypothesis_committed_unknown_state_no_reply"
+                )
+                return []
             self.item_move_hypothesis_count += 1
             self.events.append(
                 "item_move_hypothesis_committed_before_composed_response"
@@ -3885,9 +4113,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 return []
             selected = self.foundation.selected
-            selected_identity = (
-                (int(selected.identity_hi) << 32) | int(selected.identity_lo)
-            )
+            # R406 pf-adversary D1: this was the TENTH hand-composed player
+            # identity in this file and the round that claimed "one
+            # dispenser" missed it, because it is spelled differently --
+            # ``int()`` instead of a mask, no decode, no fence.  The grep
+            # token that was supposed to catch it only matched the OTHER
+            # spelling.  Converted here, and the pin in
+            # tests/test_player_identity_one_dispenser.py now walks the AST
+            # instead of counting a string, so an eleventh spelling cannot
+            # hide the same way.
+            selected_identity = selected_actor_identity(selected)
             try:
                 actions = build_remote_player_sweep(
                     legacy, remote_player_probes, remote_player_unlock,
@@ -5422,10 +5657,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append("mob_combat_no_selected_no_reply")
                 return []
             selected = self.foundation.selected
-            performer = (
-                ((selected.identity_hi & 0xFFFFFFFF) << 32)
-                | (selected.identity_lo & 0xFFFFFFFF)
-            )
+            # R4 player half: one dispenser, so this performer and the
+            # ``target`` decoded a few lines below are the same KIND of
+            # number before ``target == performer`` compares them.
+            performer = selected_actor_identity(selected)
             # R4 beat 0 (COO-DECISION 20260908 14:41), paying pf-adversary
             # finding D4 of round ``gadxq5``: ``legacy.parse_action_vital``
             # reads this field with ``struct.unpack('<Q', ...)``, so the
@@ -5726,11 +5961,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # way: ``self.foundation.selected`` is not None here
                         # because ``census_scene_id`` above already read
                         # through it to reach this branch.
-                        viewer_identity = (
-                            (self.foundation.selected.identity_hi
-                             & 0xFFFFFFFF) << 32
-                            | (self.foundation.selected.identity_lo
-                               & 0xFFFFFFFF)
+                        viewer_identity = selected_actor_identity(
+                            self.foundation.selected
                         )
                         recompose_record = (
                             mob_scene_recompose.recompose_frames(
@@ -6152,11 +6384,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # ``self.foundation.selected`` is not None here
                         # because ``census_scene_id`` above already read
                         # through it to reach this branch.
-                        death_viewer_identity = (
-                            (self.foundation.selected.identity_hi
-                             & 0xFFFFFFFF) << 32
-                            | (self.foundation.selected.identity_lo
-                               & 0xFFFFFFFF)
+                        death_viewer_identity = selected_actor_identity(
+                            self.foundation.selected
                         )
                         recompose_dying = (
                             mob_scene_recompose.recompose_frames(
@@ -6998,13 +7227,85 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "world_m2_crossing_mob_combat_membership_"
                             f"cleared_{handoff.scene_id}"
                         )
-                        self.population_indices = reset.population_indices
-                        self.population_refresh_anchor = (
-                            reset.population_refresh_anchor
+                        # ~~UNCONDITIONALLY~~ -- GATED ON A CHOOSENPC
+                        # RESPONDER, chief round R405/y8fm7z, and it is the
+                        # third writer of these three fields adopting the
+                        # condition the other two already had.
+                        #
+                        # WHAT THE UNCONDITIONAL WRITE COST, MEASURED
+                        # (pf-adversary, this round, D1, reproduced end to
+                        # end on this branch).  While this crossing composed
+                        # a CLEAR, ``reset.population_indices`` was always
+                        # ``None`` and this line was inert.  The moment the
+                        # same crossing composes scene 17's CENSUS it writes
+                        # a REAL membership - and ``population_indices`` is a
+                        # placement-index space with NO SCENE IN IT (this
+                        # file says so at :6528).  No lane_hooks ChooseNPC
+                        # responder is registered for scene 17, so one click
+                        # on any of the seven actors this crossing just put
+                        # on the client falls through to the frozen handler
+                        # at ``v141:4396-4416``, which loops the WHOLE
+                        # membership through ``PORT_ROYAL_UNAMBIGUOUS_
+                        # PLACEMENTS`` - 115 rows that do not contain index
+                        # 2, which bg1001's membership does.  ``KeyError: 2``
+                        # out of a listener whose only ``try`` is a
+                        # ``try/finally`` with no ``except`` (v141:7440,
+                        # pinned by interlock X07) = ``ManagedThread`` calls
+                        # ``request_stop`` = EVERY connected player is
+                        # dropped, by one click, every time.  And had index 2
+                        # existed, the answer would have been a full replace
+                        # collection of Port Royal's actors at Port Royal
+                        # coordinates delivered into the sea - the "one
+                        # ChooseNPC recomposes the old town into the new map"
+                        # hazard ``handoff_report``'s own docstring names.
+                        #
+                        # THE CONDITION IS NOT INVENTED HERE.  ``lane_hooks/
+                        # lane_a_scene_census._membership_if_answerable``
+                        # hands back a membership only for a scene with a
+                        # REGISTERED and PRODUCTION-ALLOWED responder, and
+                        # the travel-gate crossing 5,000 lines below withholds
+                        # on the same ground (its ``home_census`` branch,
+                        # :12352-12395) and emits the same token.  This site
+                        # was the one that answered "always"; three writers,
+                        # one field, and the field's resolver believes it is
+                        # always Port Royal.
+                        #
+                        # WHAT THE PLAYER STILL GETS: the census FRAME is
+                        # queued either way - the seven actors are on the
+                        # client exactly as before this gate.  What is
+                        # withheld is the SERVER-SIDE bookkeeping that the
+                        # frozen ChooseNPC handler cannot survive.  So this
+                        # costs the round nothing it was delivering and
+                        # removes the thing it was not.
+                        responder = lane_hooks.scene_choose_npc_responder(
+                            handoff.scene_id
                         )
-                        self.world_census_indices = (
-                            reset.population_indices
+                        membership_answerable = (
+                            responder is not None
+                            and lane_hooks.module_production_allowed(
+                                responder.module
+                            )
                         )
+                        if membership_answerable:
+                            self.population_indices = reset.population_indices
+                            self.population_refresh_anchor = (
+                                reset.population_refresh_anchor
+                            )
+                            self.world_census_indices = (
+                                reset.population_indices
+                            )
+                        else:
+                            self.population_indices = None
+                            self.population_refresh_anchor = None
+                            self.world_census_indices = None
+                            if (
+                                handoff.kind
+                                == world_population_handoff.KIND_CENSUS
+                            ):
+                                self.events.append(
+                                    "world_pop_handoff_membership_withheld_"
+                                    f"scene_{handoff.scene_id}"
+                                )
                         self.events.append(
                             "core_request_014_columbus_scene17_teleport_sent"
                         )
@@ -7266,10 +7567,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # tests/test_mob_ai_tick_gate_wiring.py pinning
                 # MODULE_NAME == that module's own __name__.
                 selected = self.foundation.selected
-                performer = (
-                    (selected.identity_hi & 0xFFFFFFFF) << 32
-                    | (selected.identity_lo & 0xFFFFFFFF)
-                )
+                performer = selected_actor_identity(selected)
                 x, y, z, _heading = self.last_target_pos
                 # COO-DECISION 2026-09-03T16:48+07:00 item 4: ONE line per
                 # session, on the first call that actually happens, so an
@@ -9580,16 +9878,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # (RE-125 closed that in the same words).  Composed exactly as
                 # the lane_b_mob_ai_tick call site above composes them
                 # (runtime.py, the TARGET_POS_VITAL branch).
+                # R4 player half: composed by the one dispenser, whose
+                # refusals cover the two conditions this branch used to
+                # spell inline (a missing selected, and a part that is not
+                # an int) and two it did not (a part outside its column,
+                # and a composed identity of 0).  This path still ARMS
+                # WITHOUT an identity rather than refusing to arm.
+                #
+                # NOT "exactly as it was", and pf-adversary (R406, D8)
+                # caught the first draft saying so: a pair of literal
+                # zeroes used to compose to ``identity = 0`` and now yields
+                # ``None``.  Zero is the identity the client never draws,
+                # so passing it on as a viewer was never right; ``None``
+                # is what this call site already means by "nobody is
+                # looking".  Unreachable from any live writer either way
+                # (``lo`` starts at ``0x10000001``), and named rather than
+                # glossed.
                 selected = getattr(foundation, "selected", None)
                 identity = None
                 if selected is not None:
-                    identity_hi = getattr(selected, "identity_hi", None)
-                    identity_lo = getattr(selected, "identity_lo", None)
-                    if type(identity_hi) is int and type(identity_lo) is int:
-                        identity = (
-                            (identity_hi & 0xFFFFFFFF) << 32
-                            | (identity_lo & 0xFFFFFFFF)
-                        )
+                    try:
+                        identity = selected_actor_identity(selected)
+                    except mob_identity_sign.MobIdentitySignError:
+                        identity = None
                 #
                 # ONE SOURCE, AND THE SECOND ONE WAS TRIED AND WITHDRAWN
                 # BEFORE IT EVER MERGED.  Both halves of that are measured
@@ -11321,7 +11632,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 ):
                     return []
                 selected = self.foundation.selected
-                performer = ((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.identity_lo & 0xFFFFFFFF)
+                performer = selected_actor_identity(selected)
                 # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
                 # COO-DECISION 20260902_0646 item 2 opted this site into the
                 # ground preserving composer.  Collect the refusal reason so a
@@ -12634,11 +12945,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # ``self.foundation.selected`` is guaranteed not
                             # None here by the enclosing dispatch ``if``
                             # (WORLD-CENSUS-001) a few hundred lines above.
-                            viewer_identity = (
-                                (self.foundation.selected.identity_hi
-                                 & 0xFFFFFFFF) << 32
-                                | (self.foundation.selected.identity_lo
-                                   & 0xFFFFFFFF)
+                            viewer_identity = selected_actor_identity(
+                                self.foundation.selected
                             )
                             override = (
                                 mob_census_hostility
@@ -13232,11 +13540,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # is always a positive account-derived qword
                             # distinct from any 0x2000+n monster identity, so
                             # this is not expected to fire.
-                            viewer_identity = (
-                                (self.foundation.selected.identity_hi
-                                 & 0xFFFFFFFF) << 32
-                                | (self.foundation.selected.identity_lo
-                                   & 0xFFFFFFFF)
+                            viewer_identity = selected_actor_identity(
+                                self.foundation.selected
                             )
                             mob_death_override = mob_death.full_roster_override(
                                 legacy, synced_roster,
@@ -13618,9 +13923,8 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # this file already builds for mob_scene_recompose.
                         try:
                             sweep_viewer = self.foundation.selected
-                            sweep_viewer_identity = (
-                                (sweep_viewer.identity_hi & 0xFFFFFFFF) << 32
-                                | (sweep_viewer.identity_lo & 0xFFFFFFFF)
+                            sweep_viewer_identity = selected_actor_identity(
+                                sweep_viewer
                             )
                         except Exception:  # noqa: BLE001
                             # No selected character on this path, or a shape

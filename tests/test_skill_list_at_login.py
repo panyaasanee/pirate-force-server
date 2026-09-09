@@ -784,8 +784,15 @@ class SentByIsReadOffTheTreeTests(unittest.TestCase):
         )
 
     def test_the_token_line_survives_the_bridge_console(self):
-        line = skill_list_at_login.headless_token(1, (111, 40000), b"x" * 50,
-                                                  "module_only", 0)
+        # The pc is COMPOSED, not faked: `headless_token` measures the row
+        # count off it (round `jty60h`, pf-adversary D3), so a byte string
+        # standing in for a frame can no longer produce a token at all.
+        legacy = load_legacy(LEGACY_PATH)
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            legacy, (111, 40000),
+        )
+        line = skill_list_at_login.headless_token(1, (111, 40000), frame,
+                                                  "module_only", 0, pc=pc)
         line.encode("ascii")
         line.encode("cp874")
 
@@ -1042,6 +1049,181 @@ class AHookCanWireThisWithoutRuntimeChangingTests(unittest.TestCase):
         self.assertEqual(1, len(calls), "call sites: %d" % len(calls))
 
 
+class TheSeamCallHasToBeReachableTests(unittest.TestCase):
+    """pf-adversary D7 (round ``ixbs2f``), paid: a call node is not a seam.
+
+    The mutant that survived the previous round deletes ONE line -- the
+    login path's ``self._skill_list_login_action(legacy)`` -- and leaves the
+    method it called standing.  The server then sends no skill frame at
+    login, and the suite goes red on eight tests, but the CONSOLE TOKEN kept
+    printing ``sent_by=runtime ... RESULT=ARMED``.  The token is the artifact
+    that travels alone: it is pasted into GT-307's ``HEADLESS_PROOF:`` line,
+    read by an operator who is not running the suite.  These tests are about
+    that line, not about the suite.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def _write(self, source):
+        path = self.dir / "runtime.py"
+        path.write_text(source, encoding="utf-8")
+        return path
+
+    def test_the_real_tree_with_the_login_call_deleted_reads_module_only(self):
+        """THE mutant, applied to the SHIPPED tree, not to a toy.
+
+        The mutation is located through the AST rather than by matching
+        source text, so it keeps finding the call after the call is
+        reformatted, renamed or moved to another method.
+        """
+        source = (SRC / "runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        chains = []
+
+        def _walk(node, stack):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.Call) and getattr(
+                    child.func, "attr", getattr(child.func, "id", ""),
+                ) == skill_list_at_login.LOGIN_SEAM_SYMBOL:
+                    chains.append(list(stack))
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _walk(child, stack + [child])
+                else:
+                    _walk(child, stack)
+
+        _walk(tree, [])
+        self.assertEqual(
+            1, len(chains), "seam call sites in runtime.py: %d" % len(chains)
+        )
+        self.assertTrue(
+            chains[0],
+            "the seam call sits at module level, so there is no login-path "
+            "call to delete and this mutant does not exist",
+        )
+        # The INNERMOST enclosing def is the carrier the mutant leaves
+        # standing; the outer one is the factory `app.py` calls.
+        carrier_name = chains[0][-1].name
+
+        spans = [
+            (node.lineno, node.end_lineno)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(
+                node.func, "attr", getattr(node.func, "id", ""),
+            ) == carrier_name
+        ]
+        self.assertTrue(
+            spans,
+            "nothing in runtime.py calls %s -- the seam is already dead"
+            % (carrier_name,),
+        )
+
+        lines = source.splitlines()
+        for start, end in sorted(spans, reverse=True):
+            indent = len(lines[start - 1]) - len(lines[start - 1].lstrip())
+            lines[start - 1:end] = [" " * indent + "pass"]
+        mutant = "\n".join(lines) + "\n"
+
+        self.assertNotEqual(source, mutant, "the mutation did not apply")
+        # The METHOD survives the mutation: that is what makes this the
+        # mutant the plain walk could not see.
+        self.assertIn(
+            skill_list_at_login.LOGIN_SEAM_SYMBOL,
+            mutant,
+            "the mutation removed the seam symbol too, which is a different "
+            "and easier mutant",
+        )
+        ast.parse(mutant)
+
+        self.assertEqual(
+            "module_only",
+            skill_list_at_login.seam_carrier(self._write(mutant)),
+        )
+
+    def test_a_method_nobody_names_does_not_arm_the_token(self):
+        path = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _dead(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "        def login(self):\n"
+            "            return None\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_naming_that_method_from_the_login_path_arms_it(self):
+        """The same tree as above plus the one line the mutant deletes."""
+        path = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _carrier(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "        def login(self):\n"
+            "            return self._carrier(None)\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_function_that_only_calls_itself_does_not_vouch_for_itself(self):
+        path = self._write(
+            "def outer():\n"
+            "    def _loop(n):\n"
+            "        %s(None, None, n)\n"
+            "        return _loop(n)\n"
+            "    return 1\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(path))
+
+    def test_a_module_level_def_still_counts_because_another_file_calls_it(
+        self,
+    ):
+        """The documented exemption, pinned so it cannot be widened quietly.
+
+        ``runtime.py``'s own ``make_state_class`` is spelled nowhere in
+        ``runtime.py`` outside its own body -- ``app.py`` calls it -- so a
+        rule that demanded an in-file caller for the OUTERMOST def would
+        answer ``module_only`` on the tree that ships today.
+        """
+        path = self._write(
+            "def make_state_class():\n"
+            "    return %s(None, None, 1)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_a_call_at_module_level_counts_because_import_runs_it(self):
+        path = self._write(
+            "FRAME = %s(None, None, 1)\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("runtime", skill_list_at_login.seam_carrier(path))
+
+    def test_the_summary_line_follows_the_tree_down(self):
+        """The operator-facing consequence, asserted on the line itself.
+
+        ``sent_by`` and ``RESULT`` are read out of the SUMMARY string rather
+        than out of ``seam_carrier``, because the defect this pays for was a
+        format string that disagreed with the function beside it.
+        """
+        dead = self._write(
+            "def make_state_class():\n"
+            "    class State:\n"
+            "        def _dead(self, legacy):\n"
+            "            return %s(legacy, None, 1)\n"
+            "    return State\n"
+            % skill_list_at_login.LOGIN_SEAM_SYMBOL
+        )
+        self.assertEqual("module_only", skill_list_at_login.seam_carrier(dead))
+
+
 class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
     """pf-adversary D3: the `HEADLESS_PROOF:` line used to print
     `SKILL_LIST_TRAILING_BYTE` straight out of the format string, so it read
@@ -1059,7 +1241,7 @@ class TheTokenReportsTheByteTheFrameCarriesTests(_Fixture):
         self.assertEqual(0, skill_list_at_login.SKILL_LIST_TRAILING_BYTE)
         line = skill_list_at_login.headless_token(
             1, (99,), frame, "module_only",
-            skill_list_at_login.measured_trailing_byte(pc, 1),
+            skill_list_at_login.measured_trailing_byte(pc, 1), pc=pc,
         )
         self.assertIn("trailing_u8=1", line)
 
@@ -1505,6 +1687,108 @@ class TheLoginPathActuallySendsItTests(unittest.TestCase):
         self.assertNotIn(
             "login_skill_list_response", frames,
             "the seam was reached after all: %r" % (frames,),
+        )
+
+
+class TheTokenMeasuresTheWireAndTheCapIsPinnedTests(unittest.TestCase):
+    """pf-adversary round `jty60h`, findings D3 and D4, paid here.
+
+    Both findings are about the same failure shape: a number that an
+    operator pastes into a ticket, or that a COO decision rests its whole
+    weight on, with nothing in the repository that turns red when it stops
+    being true.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+
+    def test_the_token_refuses_when_the_wire_and_the_row_disagree(self):
+        """D3: the mutant that composes a shorter frame than it reports.
+
+        The store's list and the composed pc are two separate answers to
+        "how many skills does this character have"; before this round the
+        token printed the first one and never looked at the second, so a
+        seam that composed four records and appended nothing, or composed a
+        one-record frame off a stale list, produced a healthy-looking
+        ``rows=4`` line.  There is no assertion here that ``rows`` equals a
+        constant -- that would be the same defect one layer up.
+        """
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111,),
+        )
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError) as caught:
+            skill_list_at_login.headless_token(
+                1, (111, 40000, 99, 110), frame, "runtime", 0, pc=pc,
+            )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_PAYLOAD_UNREADABLE,
+            caught.exception.reason,
+        )
+        self.assertIn("1 records", str(caught.exception))
+        self.assertIn("4 skill ids", str(caught.exception))
+
+    def test_the_row_count_in_the_token_is_read_out_of_the_composed_bytes(self):
+        """D3: and it really is the wire that answers, not the argument.
+
+        The pc is mutated in place at the count field's own offset, so the
+        list handed in stays four ids long while the bytes say three.  A
+        token built from ``len(skill_ids)`` cannot notice.
+        """
+        pc, frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, (111, 40000, 99, 110),
+        )
+        self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
+        start = skill_list_at_login.LEARN_SKILL_RESULT_PC_PAYLOAD_OFFSET
+        shortened = bytearray(pc)
+        shortened[start + 1:start + 3] = (3).to_bytes(2, "little")
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError):
+            skill_list_at_login.headless_token(
+                1, (111, 40000, 99, 110), frame, "runtime", 0,
+                pc=bytes(shortened),
+            )
+
+    def test_a_byte_string_that_never_was_a_frame_cannot_answer(self):
+        """D3: the count field is decoded, not merely read."""
+        for pretender in (b"", b"x" * 50, bytes(64)):
+            with self.assertRaises(skill_list_at_login.SkillListAtLoginError):
+                skill_list_at_login.measured_record_count(pretender)
+
+    def test_the_observed_cap_of_four_is_pinned_to_what_was_observed(self):
+        """D4: ``OBSERVED_ACCEPTED_RECORD_COUNT`` had no pin at all.
+
+        ``COO-DECISION 20260908_1742`` ("the cap of four stands") rests its
+        whole ruling on this constant, and pf-adversary raised it to 255
+        with the suite still green.  The pin is not a taste: four is
+        ``GT-249``'s ``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``, the largest
+        count a real client has ever been measured accepting, and raising it
+        is an attended result's job.  The behaviour is pinned beside the
+        value, so deleting the equality alone does not free the cap.
+        """
+        self.assertEqual(4, skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT)
+        rows = (111, 40000, 99, 110)
+        pc, _frame = skill_list_at_login.make_skill_list_response(
+            self.legacy, rows,
+        )
+        self.assertEqual(4, skill_list_at_login.measured_record_count(pc))
+        with self.assertRaises(skill_list_at_login.SkillListAtLoginError) as caught:
+            skill_list_at_login.make_skill_list_response(
+                self.legacy, rows + (112,),
+            )
+        self.assertEqual(
+            skill_list_at_login.REFUSE_TOO_MANY_UNMEASURED,
+            caught.exception.reason,
+        )
+
+    def test_the_cap_is_below_the_wire_field_it_lives_in(self):
+        """D4: and it is a policy floor, not the u16 the serializer allows.
+
+        A round that raises the cap to the wire maximum has not measured
+        anything; this keeps the two numbers from quietly becoming one.
+        """
+        self.assertLess(
+            skill_list_at_login.OBSERVED_ACCEPTED_RECORD_COUNT,
+            skill_list_at_login.WIRE_MAX_RECORDS,
         )
 
 

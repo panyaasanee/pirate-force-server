@@ -824,8 +824,52 @@ GRADE_SUBSET_SHA256 = (
     # so this prose edit and the rename both leave the pin byte-identical.
     # Parent digest, kept greppable:
     #   parent 4C3049CD66DEE97F40B94CAA0C9F837FEA7DCE480F368B3BBADFA1F147F1E386, recorded by round elvg52
-    #   this pin, recorded by round vxfepr:
-    "94CF4E4A0354D327FC63E61D757BFF16A77A3357CE8769525276C9786754E9FE"
+    #   parent 94CF4E4A0354D327FC63E61D757BFF16A77A3357CE8769525276C9786754E9FE, recorded by round vxfepr
+    #
+    # THIS PIN COVERS ONE DELIBERATE MOVEMENT (LANE-UI round `ncejt8`,
+    # 2026-09-08 +07:00, paying pf-adversary round `asw0n3` D6/D13): a
+    # NINTH DOMAIN, `ui_buttons` ("UI buttons and social functions"),
+    # with five rows.  Nothing that already existed moved -- no status,
+    # no required flag, no ref list, no domain_complete on any of the
+    # eight domains above it; the whole delta is the new domain, which
+    # is why this note is short where the two above it are long.
+    #
+    # WHY IT HAD TO EXIST.  Four buttons the server answers TODAY on the
+    # ordinary flagless boot -- party invite 0x37B1, party command
+    # 0x2466, trade invite 0x3700 and, in this same commit, remove
+    # friend 0x98A1 -- had ZERO rows anywhere in this matrix.  The
+    # adversary measured that directly and called it the debt that had
+    # been deferred twice: a capability the project ships and the
+    # coverage document has never heard of is exactly the drift this
+    # file exists to catch, and it was drifting in the direction nobody
+    # notices, because an absent row makes no report look wrong.
+    #
+    # WHY EVERY NEW ROW IS `in_progress` AND NOT `runtime_pass`.
+    # `observed_frames = 0` for all four ids: bytes provably leave the
+    # server, and nobody has watched a client receive them.  The fifth
+    # row, `answered_button_client_reaction`, is `not_started` and is
+    # the domain's `next_missing_behavior` -- so the domain is open on
+    # the observation, and no later round can close it by adding more
+    # buttons.
+    #
+    # WHY `evidence_refs` IS EMPTY ON ROWS THAT PLAINLY HAVE EVIDENCE.
+    # The evidence is RE-312 RESULT-1/RESULT-2, which are letters in the
+    # pf_bridge repository, and `test_declared_refs_all_exist` requires
+    # every ref to resolve to a file in THIS repository.  Naming a path
+    # that does not exist here would be a red test; naming a local file
+    # that is not the evidence would be a lie.  The letters are cited in
+    # each row's `notes` instead, which this digest deliberately does
+    # not cover.
+    #
+    # AND THE DOMAIN GAINED A SIXTH ROW BEFORE THE ROUND ENDED, which is
+    # itself the argument for the domain: `Community_RequestBeFriendVital`
+    # (0xB9E9, round asw0n3) landed on main WHILE this domain was being
+    # written, so the merge that brought it in would have re-created the
+    # exact gap this domain closes -- an answered button with no row --
+    # one commit after closing it.  `friend_request_answer` is that row.
+    #   parent 05143BFDDBFA9F24688C1CCC49164CD95EBA97507C5A8AEEBE39170FA8445D1E, the same round before that merge
+    #   this pin, recorded by round ncejt8:
+    "5CA10A2DF8009FD12CE6EBD30DAFBEC76D221355AD09D9A017C5F8BC8A110F0D"
 )
 
 

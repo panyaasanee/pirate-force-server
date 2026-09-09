@@ -278,6 +278,7 @@
 !/reports/PF_UI_REFRESH001_CHARACTER_SELECT_STATE_MACHINE_STATIC_20260819.manifest
 !/tools/pf_ui_state_refresh_static.py
 !/tools/pf_ui_party_cmd_answer_headless.py
+!/tools/pf_ui_friend_remove_answer_headless.py
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.md
 !/reports/PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_STATIC_20260819.manifest
 !/tools/pf_hp_death_respawn_static.py
@@ -576,6 +577,7 @@
 # shape as the lines above: src/tests/scenarios are allow-listed wholesale, so
 # only the tool needs its own line here.
 !/tools/pf_mine_scene_mob_roster.py
+!/tools/pf_regen_lane_a_outfit_cells.py
 
 # LANE-B round g627j0 (BUILD-006 / M5): the generator behind
 # src/pirateforce_foundation/field_drop_tables.py.  Allow-listed for the same
@@ -611,6 +613,11 @@
 # committed local TSV copies from ../pf_bridge/gamedata.
 !/tools/pf_class_skill_starting_kit_extract.py
 !/tools/pf_class_skill_curriculum_extract.py
+
+# LANE-CS round jty60h - generator for the full SKILL_CONTEXT census
+# (skill_context_census.py); same reason as the two above: a fresh clone
+# has to be able to re-derive the committed copy from ../pf_bridge/gamedata.
+!/tools/pf_skill_context_census_extract.py
 
 # LANE-B round ti9gxr - the generator for combat_pose.py's two committed local
 # TSV copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class

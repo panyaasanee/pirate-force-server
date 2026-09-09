@@ -1,4 +1,5 @@
 from .actor_wire import bind_actor_and_avatar_identity, read_name
+from . import mob_identity_sign
 from .model import Position
 from .world_scene_travel import is_position_persist_allowed, load_scene_registry
 import hashlib
@@ -203,6 +204,63 @@ def grant_starting_skills_for_class(store, character, class_id: int) -> "tuple[i
     return granted
 
 
+def refuse_unmintable_identity(identity_lo: int, identity_hi: int) -> int:
+    """The one rule a newly minted character identity must satisfy.
+
+    Lifted out of the closure it started in so it can be MEASURED
+    directly (pf-adversary R406, D3): the fence it replaced could not
+    refuse the case its own comment named, and the only test of it
+    had to patch a module to reach it.  Returns the composed identity
+    so a caller can use it inline.
+    """
+    # R4 player half, the minting end (PANYA ``20260908_1420``:
+    # "one dispenser for the whole circuit, and guard the value 0";
+    # COO-DECISION ``20260908_1642`` named this call site with
+    # ``runtime.py``).
+    #
+    # WHAT THIS FENCE ASKS, AND WHY IT IS NOT "IS IT ZERO".  The
+    # first draft asked only ``identity_is_drawn`` -- i.e. "is the
+    # composed value 0" -- and pf-adversary (R406, finding D3)
+    # measured that dead: ``lo`` starts at ``0x10000001``, so the
+    # composed value is never zero for ANY ``hi``, and the one
+    # minter the comment claimed to fence against (``hi != 0``)
+    # walked straight through it.  A fence that cannot refuse the
+    # case it names is a comment, not a fence.
+    #
+    # What the circuit actually requires is stronger and is
+    # measured downstream, not guessed here: every consumer of a
+    # player identity today demands a POSITIVE one.
+    # ``mob_viewer_link.link_viewer_to_npc_attr`` raises
+    # ``REFUSE_VIEWER_IDENTITY_NOT_POSITIVE``, and
+    # ``action_ack`` refuses a performer outside
+    # ``0 < n <= 0xFFFFFFFFFFFFFFFF``.  So a character minted with
+    # the top bit of ``hi`` set is not a character with an unusual
+    # number -- it is a character whose FIRST combat frame kills
+    # the connection thread (``v141`` line 7440 has no handler),
+    # and it would be born, logged in, and playable right up to
+    # that frame.  Refused at birth instead, where it costs one
+    # character creation rather than a session.
+    #
+    # THIS IS THE HALF OF THE CIRCUIT THAT IS STILL MISSING, NAMED
+    # RATHER THAN HIDDEN: making a negative player identity
+    # actually WORK needs ``encode_wire_identity`` at those
+    # consumers, which is not this ticket.  Until someone writes
+    # that, "no non-positive player identity may be minted" is the
+    # honest contract, and this line is where it is kept.
+    composed = ((identity_hi & 0xFFFFFFFF) << 32) | (identity_lo & 0xFFFFFFFF)
+    identity = mob_identity_sign.decode_wire_identity(composed)
+    if identity <= 0:
+        raise ValueError(
+            "refusing to mint a character identity the rest of the "
+            "server cannot carry: identity_lo=%d identity_hi=%d "
+            "composes to %d, and every consumer of a player "
+            "identity today requires a positive one (see "
+            "mob_viewer_link and action_ack)"
+            % (identity_lo, identity_hi, identity)
+        )
+    return identity
+
+
 class CharacterLifecycle:
     def __init__(self, store, default_position: Position, avatar_extractor=None):
         self.store, self.default_position = store, default_position
@@ -249,6 +307,7 @@ class CharacterLifecycle:
             if lo > 0xFFFFFFFF:
                 raise OverflowError("server character identity exhausted")
             hi = 0
+            refuse_unmintable_identity(lo, hi)
             wire, avatar_wire = bind_actor_and_avatar_identity(
                 submitted_wire, lo, hi, selector, self.avatar_extractor
             )

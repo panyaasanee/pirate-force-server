@@ -136,7 +136,10 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
                 row = placement.identity
                 self.assertTrue(row.outfit)
                 self.assertTrue(row.outfit.isascii())
-                self.assertNotIn(";", row.outfit)
+                # ROUND 2a2jqp: a ';' is no longer a defect (the cell
+                # ships whole); an EMPTY token still is.
+                self.assertTrue(
+                    all(token for token in row.outfit.split(";")))
                 self.assertNotIn("|", row.outfit)
                 self.assertTrue(row.title.isascii())
                 self.assertGreaterEqual(row.level, 1)
@@ -387,12 +390,35 @@ class TheSelfCheckRefusesADriftedTable(unittest.TestCase):
         """
         self._refuses(UNRESOLVED={99: (1, 1, "invented")})
 
-    def test_a_multi_variant_outfit_reaching_the_column_refuses(self) -> None:
+    def test_an_empty_avatar_token_reaching_the_column_refuses(self) -> None:
+        """ROUND 2a2jqp: ~~a ';' in the column was the defect~~.
+
+        The cell now ships WHOLE (COO-DECISION 2026-09-08 13:41 +07:00,
+        PANYA `1313`, `RE-296`: the client tokenises the cell itself and
+        keeps every token), so appending a second variant is no longer a
+        defect and this test would have kept its name while asserting
+        something else.  What is still a defect is a token that can name
+        no avatar file at all, and that is what is mutated in here.
+        """
         bad = list(identity._RESOLVED_ROWS)
         row = list(bad[0])
-        row[3] = row[3] + ";M999_000_000_N"
+        row[3] = row[3] + ";"
         bad[0] = tuple(row)
         self._refuses(_RESOLVED_ROWS=tuple(bad))
+
+    def test_a_whole_cell_in_the_column_is_accepted(self) -> None:
+        """The other half of the flip: the new shape must NOT refuse."""
+        good = list(identity._RESOLVED_ROWS)
+        row = list(good[0])
+        row[3] = row[3] + ";M999_000_000_N"
+        good[0] = tuple(row)
+        originals = identity._RESOLVED_ROWS
+        identity._RESOLVED_ROWS = tuple(good)
+        try:
+            identity._self_check()
+        finally:
+            identity._RESOLVED_ROWS = originals
+        identity._self_check()
 
     def test_a_second_leg_shipped_as_well_refuses(self) -> None:
         extra = dict(identity.IDENTITIES)
