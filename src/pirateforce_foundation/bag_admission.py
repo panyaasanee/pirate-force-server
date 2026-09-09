@@ -1,6 +1,17 @@
 """LANE-B / BAG-ADMISSION-001: tell a picked-up item apart from a governed
 hypothesis post-state, at the character-select gate.
 
+CROSS-LANE EDIT, NAMED (PANYA `2150` / COO-DECISION `20260909_1312`,
+LANE-CS).  ``VERDICT_EMPTY_BIRTH_BAG`` / ``is_empty_birth_bag`` /
+``may_enter_world``'s fourth term are LANE-CS's addition, ordered directly
+by COO because the birth rule ("every class is born with an empty bag, no
+per-class kit") had to land in the SAME predicate gate 2 already calls,
+not in a parallel one this module would have to also OR in later.  It adds
+one admission path beside the three below and narrows nothing: every bag
+this module already admitted, it still admits.  Gates 1 and 3, the golden
+snapshots, ``is_unmoved_baseline`` and everything else below this note
+remain LANE-B's, unchanged by this edit.
+
 WHAT THIS MODULE IS FOR.  ``BUILD-006`` / M5 is "loot drops, you pick it up,
 it is in your bag after a relog".  ``mob_loot`` built the roll and the ground,
 ``mob_pickup`` built the bag row -- and then both stopped at the same wall,
@@ -350,6 +361,17 @@ MAX_SLOT_QUANTITY = 0xFFFF
 
 VERDICT_GOLDEN = "golden"
 VERDICT_GOLDEN_PLUS_ACQUIRED = "golden_plus_acquired"
+#: PANYA `2150` / COO-DECISION `20260909_1312` (LANE-CS): there is no
+#: per-class starting kit any more -- birth is a bag with ZERO items, for
+#: every one of the five classes, no golden required.  Kept apart from
+#: ``VERDICT_GOLDEN`` (which means "matches a nonempty golden snapshot
+#: exactly") and from ``VERDICT_GOLDEN_PLUS_ACQUIRED`` (which requires every
+#: golden row still present) for the same reason ``VERDICT_MALFORMED`` is
+#: its own verdict: a bag with nothing in it is not "built on a golden and
+#: unchanged", it carries no golden row to have kept.  ``golden_backpacks()``
+#: (the two v141 snapshots, fixtures/byte-comparison references only per
+#: `2150`) is not consulted for this verdict at all.
+VERDICT_EMPTY_BIRTH_BAG = "empty_birth_bag"
 VERDICT_REFUSED = "refused"
 #: Separate from VERDICT_REFUSED on purpose.  ``may_enter_world`` has to treat
 #: "this is not a Backpack" differently from every other refusal (it must not
@@ -381,7 +403,10 @@ class BagAdmission:
 
     @property
     def admissible(self) -> bool:
-        return self.verdict in (VERDICT_GOLDEN, VERDICT_GOLDEN_PLUS_ACQUIRED)
+        return self.verdict in (
+            VERDICT_GOLDEN, VERDICT_GOLDEN_PLUS_ACQUIRED,
+            VERDICT_EMPTY_BIRTH_BAG,
+        )
 
 
 def _describe_row_difference(
@@ -634,6 +659,15 @@ def classify(
             detail=f"{type(error).__name__}: {error}",
         )
 
+    if not value.items:
+        # PANYA `2150` / COO-DECISION `20260909_1312`: the birth rule is an
+        # empty bag for every class, unconditionally -- checked before the
+        # golden loop below because an empty bag has no row that could ever
+        # match a golden's, and running it through that loop would report a
+        # birth bag as "not built on either golden snapshot" instead of
+        # naming the rule that actually admits it.
+        return BagAdmission(VERDICT_EMPTY_BIRTH_BAG)
+
     refusals: list[tuple[tuple, BagAdmission]] = []
     for index, golden in enumerate(golden_backpacks()):
         admission = _classify_against(value, golden, index, issued_through)
@@ -693,6 +727,17 @@ def is_golden_plus_acquired(
     )
 
 
+def is_empty_birth_bag(value: Any) -> bool:
+    """PANYA `2150` / COO-DECISION `20260909_1312`: the birth rule itself.
+
+    True for a structurally valid Backpack holding zero items, for ANY
+    class -- no golden lookup, no per-class kit.  ``issued_through`` is not
+    a parameter: a bag with nothing in it has no acquired row whose
+    identity could need checking against the counter.
+    """
+    return classify(value).verdict == VERDICT_EMPTY_BIRTH_BAG
+
+
 def may_enter_world(
     value: Any, *, allow_hypothesized_item_move: bool, issued_through: int,
 ) -> bool:
@@ -717,6 +762,12 @@ def may_enter_world(
     BackpackState": ``store.swap_backpack_item_with_occupied_slot`` parks a
     row at slot 65535, which is a BackpackState the shape gate refuses, so
     the wider wording was false as written.
+
+    A FOURTH TERM, PANYA `2150` / COO-DECISION `20260909_1312` (LANE-CS): a
+    bag classified ``VERDICT_EMPTY_BIRTH_BAG`` is admitted unconditionally,
+    the same way ``VERDICT_GOLDEN`` is -- ahead of the opt-in check, so an
+    empty birth bag is not accidentally read as depending on
+    ``allow_hypothesized_item_move``.  It is a birth rule, not a hypothesis.
     """
     # ``issued_through`` is REQUIRED here, with no default, on purpose: this
     # is the production gate-2 predicate, and COO-DECISION 20260829_0848
@@ -727,7 +778,7 @@ def may_enter_world(
     admission = classify(value, issued_through=issued_through)
     if admission.verdict == VERDICT_MALFORMED:
         return False
-    if admission.verdict == VERDICT_GOLDEN:
+    if admission.verdict in (VERDICT_GOLDEN, VERDICT_EMPTY_BIRTH_BAG):
         return True
     if allow_hypothesized_item_move:
         return True
