@@ -127,6 +127,7 @@ from . import field_mob_hostile_bg0015
 from . import field_mobs
 from . import mob_ai_control
 from . import mob_death
+from . import mob_identity_sign
 from . import mob_scene_recompose
 
 # world_scene_folder._FOLDER_BY_SCENE_ID: (2, "Bg0002"), (14, "Bg0015").
@@ -297,10 +298,18 @@ def splice_identities_missing_from(
     """
     external = set()
     for identity in external_identities:
-        if type(identity) is not int or identity <= 0:
+        # Lane A's census still hands out ``0x2000 + placement + 1`` today,
+        # but this cross-check must not be the thing that breaks on the day
+        # this lane flips the allocator: the shared rule decides what an
+        # actor identity is (COO-DECISION 20260909_1312 beat 1), and 0 is
+        # refused here as everywhere.
+        try:
+            mob_identity_sign.require_targetable_identity(
+                identity, "external identity")
+        except mob_identity_sign.MobIdentitySignError as exc:
             raise MobCombatBg0015GateError(
-                "external identities must be positive ints, got %r"
-                % (identity,))
+                "external identities must be drawable actor identities, "
+                "got %r" % (identity,)) from exc
         external.add(identity)
     if not external:
         raise MobCombatBg0015GateError(

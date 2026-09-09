@@ -420,13 +420,14 @@ def _require_identity(value: Any, label: str) -> int:
     ``mob_identity_sign.decode_wire_identity`` on an inbound value is
     refused HERE, loudly, instead of quietly missing.
     """
-    if type(value) is not int or type(value) is bool:
+    try:
+        return mob_identity_sign.require_targetable_identity(value, label)
+    except mob_identity_sign.MobIdentitySignError as exc:
+        # The JUDGEMENT is the shared one (COO-DECISION 20260909_1312 beat 1);
+        # the wording of the refusal stays this module's own so its callers'
+        # detail strings do not move.
         raise MobAiControlError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s=%r" % (label, value))
-    if not mob_identity_sign.is_targetable_identity(value):
-        raise MobAiControlError(
-            REFUSE_IDENTITY_NOT_POSITIVE, "%s=%r" % (label, value))
-    return value
+            REFUSE_IDENTITY_NOT_POSITIVE, "%s=%r" % (label, value)) from exc
 
 
 def _require_mob(value: Any) -> FieldMob:

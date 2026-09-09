@@ -1068,9 +1068,29 @@ class ContainmentTests(unittest.TestCase):
             if isinstance(node, ast.Import):
                 imported.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
-                imported.add(node.module or "")
+                # ROUND `v55fhk`: a bare ``from . import x`` used to land here
+                # as the empty string, so EVERY sibling import read the same
+                # and this set could not tell ``mob_identity_sign`` from
+                # ``runtime``.  Name the sibling instead; the widening below
+                # is only safe because of this line.
+                if node.level and not node.module:
+                    imported.update("." * node.level + alias.name
+                                    for alias in node.names)
+                else:
+                    imported.add(node.module or "")
+        # WIDENED round `v55fhk` under COO-DECISION `20260909_1312` beat 1,
+        # which orders ONE identity-range rule in ONE place before this lane
+        # flips ``field_mobs.actor_identity`` negative.  That place is
+        # ``mob_identity_sign``, and it is not a layer: it imports
+        # ``__future__`` and ``typing`` and nothing else, holds no state,
+        # opens no file and touches no wire, so importing it cannot give
+        # this module a clock, a socket or a cross-lane edge -- the three
+        # things this test exists to keep out.  What it buys is that the
+        # ``<= 0`` this module used to carry over an actor identity is gone:
+        # that copy would have refused every real monster on the day the
+        # band goes negative, silently, in a module nobody would re-read.
         self.assertEqual(imported, {"__future__", "dataclasses", "math",
-                                    "typing"})
+                                    "typing", ".mob_identity_sign"})
 
     def test_the_module_has_no_import_time_side_effects(self):
         allowed = (
@@ -1180,11 +1200,18 @@ class ContainmentTests(unittest.TestCase):
             sorted(importers),
             sorted([ma.MOB_AGGRO_IMPORTER + ".py", "mob_ai_player_damage.py",
                     "mob_ai_scheduler.py"]))
+        # A SIXTH MENTION, ROUND `v55fhk`: ``mob_identity_sign`` names this
+        # module in prose, in the docstring of the one shared identity-range
+        # rule, because this module is one of the four places that carried a
+        # rule of its own before COO-DECISION `20260909_1312` beat 1.  It is
+        # a mention and not an importer -- the edge runs the other way, this
+        # module imports IT -- and the census stays hand-widened so that a
+        # new edge cannot appear without a human reading this list.
         self.assertEqual(
             sorted(mentions),
             ["lane_hooks/lane_b_mob_ai_tick.py", "mob_ai_control.py",
              "mob_ai_player_damage.py", "mob_ai_scheduler.py",
-             "mob_combat.py"])
+             "mob_combat.py", "mob_identity_sign.py"])
         # The edge that must NOT come back: the damage driver's wiring line
         # still passes None, so threat never arrives through an argument the
         # scan above cannot see.  It arrives through the importer named on the

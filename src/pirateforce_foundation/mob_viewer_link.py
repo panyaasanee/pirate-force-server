@@ -87,6 +87,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import mob_identity_sign
+
 #: LANE-B owns this module; there is nothing here a scenario flag could gate
 #: that the refusals below do not gate harder, and this lane does not ship
 #: work that needs a flag turned on.
@@ -181,12 +183,27 @@ def link_viewer_to_npc_attr(
     composer builds, so a body whose layout moved comes back as a named
     refusal instead of bytes that would reach a client.
     """
-    if isinstance(viewer_identity, bool) or not isinstance(viewer_identity, int):
-        raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
-    if viewer_identity <= 0:
-        raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_NOT_POSITIVE)
-    if viewer_identity > LINKED_IDENTITY_CEILING:
+    # ORDER MATTERS, and it is the pre-existing order kept on purpose: this
+    # module's own ceiling is the WIDTH of the field the splice writes (a
+    # full unsigned qword), and a value above it has always come back as
+    # OUT_OF_RANGE rather than "not positive".  That name is what a caller
+    # who passed a garbage-wide number needs to read, so it is checked
+    # first.
+    if isinstance(viewer_identity, int) \
+            and not isinstance(viewer_identity, bool) \
+            and viewer_identity > LINKED_IDENTITY_CEILING:
         raise MobViewerLinkError(REFUSE_VIEWER_IDENTITY_OUT_OF_RANGE)
+    # A viewer is a player, so it is the player half of the ONE shared rule
+    # (COO-DECISION 20260909_1312 beat 1) rather than a local "<= 0".  This
+    # also narrows the band: a viewer identity between 2**63 and the ceiling
+    # is an UNDECODED wire value, and it is refused here instead of being
+    # spliced onto a body as if it were an actor.
+    try:
+        mob_identity_sign.require_player_identity(
+            viewer_identity, "viewer identity")
+    except mob_identity_sign.MobIdentitySignError as exc:
+        raise MobViewerLinkError(
+            REFUSE_VIEWER_IDENTITY_NOT_POSITIVE) from exc
     # RE-195 result row 61(a): the selector wants an associated identity that
     # is nonzero and NOT the monster's own.  A body that links a monster to
     # itself is the one shape that is certainly wrong, so it is refused here
