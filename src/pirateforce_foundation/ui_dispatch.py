@@ -36,13 +36,16 @@ item 3, answering this lane's letter
 ``20260908_0031_LANE-UI-ASK-COO-eight-vitals-*``): the wiring lands
 inert, and the first real answer is a later, separate, reviewable change.
 
-That later change has happened -- twice.  ``lane_hooks``
-``lane_ui_party_invite_answer.py`` (round spdxy0) and
-``lane_ui_trade_invite_answer.py`` (round xqxadg) both ship
-``production_allowed = True``, so on a default flagless boot TWO of the
-eight ids answer with a real frame today and six still get ``[]``.  The
-line above stayed unedited for a whole round after that stopped being
-true, and pf-adversary (round xqxadg, D6) is what caught it: a header
+That later change has happened, and THIS PARAGRAPH DOES NOT SAY HOW MANY
+TIMES, on purpose.  Answerers ship in ``lane_hooks/lane_ui_*_answer.py``
+with ``production_allowed = True``, so on a default flagless boot the ids
+in ``_ANSWERER_OWNERS`` answer with a real frame and the rest still get
+``[]``; that table is the count, and it is right by construction.
+THE COUNT USED TO BE WRITTEN OUT HERE AND IT WAS WRONG THREE ROUNDS
+RUNNING -- "TWO ... and six" survived party_cmd landing (m54yxh) and then
+survived a round whose whole point, 190 lines below, was to stop
+hand-counting the very same table (pf-adversary round `ncejt8`, F7,
+caught it; round xqxadg's D6 caught the previous instance).  A header
 that describes the day a file landed, in the present tense, becomes a
 false statement about the system the first time somebody uses the file.
 Anything below that reads "ships empty" is history, not behaviour.
@@ -97,9 +100,18 @@ its own interpreter, and every guard this file could add is one
 attribute assignment away from being removed.  What closes it is the
 seam owning registration outright -- ``lane_hooks._discover()`` writing
 the table from a lane's declared ``ANSWERS_VITAL_ID`` instead of a lane
-calling in -- which is CORE-REQUEST ``20260908_1553``, filed, not
-answered yet.  Until it is answered this is a REAL residual and is not
-described anywhere as closed.
+calling in -- which is CORE-REQUEST ``20260908_1553``.  IT IS ANSWERED
+AND IT IS NOT LANDED, and those are different sentences (pf-adversary
+round `asw0n3`, D7: this paragraph still read "filed, not answered yet"
+two rounds after the answer arrived).  chief approved it in
+``notes_to_chief/20260908_1703_FROM_CHIEF_R404-to-LANE-UI-*`` and then,
+in ``20260908_2031_FROM_CHIEF_R406-*``, declined to wire ``_discover()``
+for one measured reason this lane asked for: ``adopt_answerer`` is not on
+``main`` yet, and wiring the seam to a function that is not there opens
+the hole it is meant to close.  So the residual is UNCHANGED in effect --
+registration is still a lane calling in -- and it is not described
+anywhere as closed.  What moved is only who it waits on: a merge, not a
+decision.
 
 WHAT THIS FILE DOES NOT DO.  It does not decode a payload, does not know
 what any of the eight frames MEAN (letter ``20260904_1120`` nonclaim (2)
@@ -215,12 +227,53 @@ _ANSWERERS = {}
 # ``answer()``'s gate still demands a ``_PRODUCTION_ALLOWED`` entry,
 # which only ``_discover()`` writes and only for ``lane_*.py``.
 # An id with NO row here cannot be taken by a lane module at all: the
-# six ids nobody has written an answerer for stay unanswerable until a
-# row for them is reviewed into this file.
+# ids nobody has written an answerer for stay unanswerable until a row
+# for them is reviewed into this file.  THE COUNT IS DELIBERATELY NOT
+# WRITTEN HERE (pf-adversary round `asw0n3`, D9: a hand-written "six"
+# went false the moment the next row landed and nothing could catch it).
+# The remaining ids are ``ANSWERABLE_VITAL_IDS`` minus this table's keys,
+# which is a subtraction any reader -- and
+# ``tests/test_ui_dispatch.py`` -- can do.
 _ANSWERER_OWNERS = {
     0x37B1: _LANE_PACKAGE + "lane_ui_party_invite_answer",
     0x3700: _LANE_PACKAGE + "lane_ui_trade_invite_answer",
     0x2466: _LANE_PACKAGE + "lane_ui_party_cmd_answer",
+    # THE FIRST OF THE FIVE ``CommunityModule_Client`` IDS, and the first
+    # row here whose id is ALSO read on the production path by a
+    # report-only hook (``lane_ui_friend_wire_log``).  Those are two
+    # different questions: runtime.py fires the log hook and then calls
+    # ``answer()``, so the log keeps printing what arrived and this row
+    # is about who may put a byte back.
+    #
+    # AND WHAT "WHO MAY" MEANS IS THE OTHER WAY ROUND FROM HOW THIS
+    # COMMENT FIRST PUT IT (pf-adversary round asw0n3, D2).  BEFORE this
+    # row, ``_ANSWERER_OWNERS.get(0xB9E9)`` was ``None`` and NO lane
+    # module could take the id by any route -- measured.  AFTER it, the
+    # answer is "the module named here, OR anyone who can gate that
+    # module and write into its namespace": the adversary drove
+    # ``deadbeef`` out of the real ``state.dispatch()`` under this
+    # label using the gated-incumbent-yield route and the residual
+    # named at ``_install_answerer`` below, and a
+    # ``production_allowed = False`` file that does nothing but IMPORT
+    # the owner denies the button forever.  Those two mechanisms are the
+    # seam's, not this row's, and are recorded as open residuals in this
+    # file's own header -- what is new is that they now reach ``0xB9E9``,
+    # and that the owner module's public ``arming_sample()`` is the
+    # first reason another lane has ever had to import it.  Not fixed
+    # here; carried as this lane's first item next round rather than
+    # left for a reader to rediscover.
+    0xB9E9: _LANE_PACKAGE + "lane_ui_friend_request_answer",
+    # THE SECOND OF THOSE FIVE (round ncejt8).  Everything the paragraph
+    # above says about what this table can and cannot decide applies
+    # unchanged to this id: the row settles who may put a byte back, and
+    # the two residuals it names -- the gated-incumbent-yield route and
+    # the one at ``_install_answerer`` -- now reach ``0x98A1`` too.  That
+    # cost is written up rather than left for a reader to find, in
+    # pf_bridge ``notes_to_chief/20260908_2132_LANE-UI-ASK-COO-the-
+    # answerer-public-api-*``.  What is different here: this module has
+    # NO public API beyond its answerer, so the "first reason another
+    # lane has ever had to import it" sentence above does not extend.
+    0x98A1: _LANE_PACKAGE + "lane_ui_friend_remove_answer",
 }
 
 
@@ -1037,14 +1090,31 @@ def _hex(vital_id):
 # THE NUMBERS.  ``versions`` is the vital version byte set; ``0`` is what
 # ``ui_party_wire``/``ui_trade_wire`` ship and their own headers mark it
 # an unproven default, so the set is exactly what is shipped and nothing
-# more.  ``max_payload_bytes`` 512: these two payloads are u8 + u64 +
-# tagged wstring, measured at 26 bytes for a five-character name, and 512
-# is far above any name the client can produce while still refusing a
-# lane that wants a listed label to carry a blob.  ``max_frame_bytes``
-# 1024: the envelope this project ships added 32 bytes to that 26-byte
-# payload (58 on the wire, the arming proof prints it), so 1024 bounds a
-# 512-byte payload with room to spare and still refuses a frame that is
-# not this shape at all.
+# more.
+#
+# ``max_payload_bytes`` 512 ON THE TWO WSTRING ROWS IS A BUDGET, NOT A
+# CLAIM ABOUT NAMES, and pf-adversary (round `asw0n3`, D8) is why this
+# paragraph now says so.  It used to read "512 is far above any name the
+# client can produce", which is a statement about what the field MEANS
+# -- exactly the reasoning letter ``20260904_1120`` nonclaim (2) forbids
+# this file from doing, in the same file that forbids it.  What is
+# actually measured: these payloads are u8 + u64 + tagged wstring, 26
+# bytes for a five-character value, and this seam refuses to SEND more
+# than 512.  What it does NOT bound is what a client may make an
+# answerer PARSE: inbound length is `recv_frame`'s u32, so a two-million
+# byte payload decodes and re-encodes (7.3 ms, measured) before anything
+# here declines it.  Bounding that is `recv_frame`'s business, filed, not
+# taken here -- but it must not be mistaken for a thing this row does.
+#
+# ``max_frame_bytes`` 1024 IS ALSO A BUDGET, AND THE ENVELOPE IS NOT A
+# CONSTANT 32 BYTES (measured 32 / 34 / 35 for values of 5 / 100 / 248
+# characters, because the envelope's own length fields widen).  The
+# conclusion the row rests on survives the correction and is stated as
+# an inequality rather than as an addition: the largest frame a 512-byte
+# payload can produce stayed under 550 in every measurement, and 1024
+# leaves room for an envelope this lane does not own to grow without
+# turning somebody else's change into a dead button, while still
+# refusing a frame that is not this shape at all.
 #
 # THE IDS ARE LITERALS, PINNED BY TEST, for the reason given above
 # ``ANSWERABLE_VITAL_IDS``: a comment cannot go stale unnoticed, so
@@ -1091,6 +1161,47 @@ _OUTBOUND_FRAME_SHAPES = {
         versions=frozenset((0,)),
         max_payload_bytes=11,
         max_frame_bytes=64,
+    ),
+    # THE SECOND FIXED-WIDTH CLASS, AND THE SAME CHOICE FOR THE SAME
+    # REASON.  ``Community_RemoveFriendVital`` is ``u64 + u64 + u8`` with
+    # no string, so every payload the lane can emit is exactly 20 bytes
+    # -- measured from the encoder over 4,000 random field triples,
+    # including both u64 extremes, in
+    # ``tests/test_lane_ui_friend_remove_answer.py`` -- and the answerer
+    # requires EQUALITY against this number rather than treating it as a
+    # ceiling.  ``max_frame_bytes`` 64 is again deliberately NOT exact:
+    # the envelope is ``legacy.make_runtime_vitals``'s and not this
+    # lane's, it measured 52 bytes on this commit, and that measurement
+    # is pinned in the test file (a RED TEST, which is a message to a
+    # person) instead of here (a refusal, which is a dead button).
+    "UI_FRIEND_REMOVE_ANSWERED": _OutboundShape(
+        vital_id=0x98A1,
+        versions=frozenset((0,)),
+        max_payload_bytes=20,
+        max_frame_bytes=64,
+    ),
+    # A WSTRING CLASS, SO A CEILING AND NOT A WIDTH.
+    # ``Community_RequestBeFriendVital`` is ``u64 + tagged wstring + u8``,
+    # so a name moves its width and the fixed-width row above would be
+    # wrong here: the same 512/1024 pair the two wstring rows at the top
+    # of this registry use, chosen for the same reason and measured the
+    # same way (26 bytes for a five-character name, 58 on the wire with
+    # ``make_runtime_vitals``'s envelope, which measured 32 bytes for
+    # that name and is NOT a constant -- 32/34/35 at 5/100/248
+    # characters).  512 still refuses a lane that wants this label to
+    # carry a blob.  THE SENTENCE THAT USED TO FINISH THIS COMMENT --
+    # "no name the client can type reaches it" -- IS GONE (pf-adversary
+    # round asw0n3, D8, paid for the two rows at the top of this
+    # registry in round `ncejt8` and here as soon as this row landed):
+    # it is a claim about what the field MEANS, which letter
+    # ``20260904_1120`` nonclaim (2) forbids this file from making.  512
+    # is a send budget, and what a client can make an answerer PARSE is
+    # bounded by ``recv_frame``'s u32, not by this row.
+    "UI_FRIEND_REQUEST_ANSWERED": _OutboundShape(
+        vital_id=0xB9E9,
+        versions=frozenset((0,)),
+        max_payload_bytes=512,
+        max_frame_bytes=1024,
     ),
 }
 

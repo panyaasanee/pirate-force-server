@@ -142,25 +142,62 @@ class OneDefinitionTests(unittest.TestCase):
                 "M001_000_000_N;M001_000_000_SP1"),
         )
 
-    def test_the_repository_holds_one_definition_of_the_rule(self) -> None:
-        # A grep, because the claim is about the repository and not about an
-        # import graph: any OTHER file that splits an outfit cell on ';' for
-        # a LANE-B mob is a second rule waiting to drift.  LANE-A's identity
-        # tables are excluded BY NAME rather than by pattern -- they are that
-        # lane's files, they apply the same first-token reading at their own
-        # row build, and this lane does not get to refactor them.
-        lane_a_owned = {"world_", "scene2_prison_exile_tables.py"}
-        # ``;`` is a separator in more than one of this game's tables -- the
-        # AI rule strings in ``mob_ai_rules`` split on it too, and those have
-        # nothing to do with avatars.  So the grep is for a split on ';' IN
-        # THE SAME LINE AS an avatar word, which is what a second copy of
-        # this rule would actually look like.
+    # THE OTHER HOLDERS OF THE SAME READING, PINNED BY CENSUS RATHER THAN
+    # SKIPPED BY NAME (pf-adversary D9, round db4o73).  The first version of
+    # this test excluded LANE-A's identity tables BY NAME and then claimed
+    # this module was "the single dispenser of the rule".  That sentence was
+    # wider than the measurement: those files hold the same first-token
+    # reading in a dozen more places, and a name-shaped skip cannot tell a
+    # thirteenth from the twelve.  So they are still not this lane's to
+    # refactor -- but they are COUNTED.  A new holder appearing anywhere,
+    # including inside LANE-A, turns this test red with the file that grew.
+    #
+    # Measured on round vavm4h over src/pirateforce_foundation/**/*.py with
+    # the idiom set below: 15 files, 26 lines.  Nothing in this lane's own
+    # files is in it, which is the claim this lane is actually entitled to
+    # make: LANE-B has one dispenser, and the rest of the tree's copies are
+    # enumerated instead of waved at.
+    OTHER_HOLDERS_OF_THE_READING = {
+        "world_bg0003_identity.py": 2,
+        "world_bg0004_identity.py": 2,
+        "world_bg0005_identity.py": 2,
+        "world_bg0006_identity.py": 2,
+        "world_bg0007_identity.py": 2,
+        "world_bg0008_identity.py": 2,
+        "world_bg0009_identity.py": 2,
+        "world_bg0010_identity.py": 2,
+        "world_bg0011_identity.py": 2,
+        "world_bg0015_identity.py": 2,
+        "world_bg1001_identity.py": 1,
+        "world_bg3001_identity.py": 1,
+        "world_bg3007_identity.py": 1,
+        "world_bg3008_identity.py": 1,
+        "world_bg4001_identity.py": 2,
+    }
+
+    # D9's second half: the old grep matched the literal text ``split(';')``
+    # and nothing else, so ``partition(';')[0]`` -- the same reading, spelled
+    # differently -- walked straight past it.  Every idiom that takes a first
+    # token off a ';' is matched now.  ``rsplit`` is in the set although it
+    # takes the LAST token: a file that reaches for it on an outfit cell is
+    # applying some reading of this rule and this test wants to see it.
+    FIRST_TOKEN_IDIOMS = (
+        "split(';')", 'split(";")',
+        "partition(';')", 'partition(";")',
+        "rsplit(';')", 'rsplit(";")',
+    )
+
+    def _census_of_the_reading(self) -> dict:
+        """Every file outside this module that reads an outfit cell on ';'.
+
+        ``;`` is a separator in more than one of this game's tables -- the AI
+        rule strings in ``mob_ai_rules`` split on it too, and those have
+        nothing to do with avatars -- so a line counts only when an avatar
+        word sits on it, which is what a second copy of THIS rule looks like.
+        """
         avatar_words = ("outfit", "preset", "avatar", ".avt")
-        offenders = []
+        census: dict = {}
         for path in sorted((SRC / "pirateforce_foundation").rglob("*.py")):
-            if any(path.name.startswith(p) or path.name == p
-                   for p in lane_a_owned):
-                continue
             if path.name == "mob_avatar_basename.py":
                 continue
             text = path.read_text(encoding="utf-8")
@@ -168,14 +205,54 @@ class OneDefinitionTests(unittest.TestCase):
                 stripped = line.strip()
                 if stripped.startswith("#") or stripped.startswith("*"):
                     continue
-                if "split(';')" not in line and 'split(";")' not in line:
+                if not any(idiom in line for idiom in self.FIRST_TOKEN_IDIOMS):
                     continue
                 if any(word in line.lower() for word in avatar_words):
-                    offenders.append("%s: %s" % (path.name, stripped))
+                    census[path.name] = census.get(path.name, 0) + 1
+        return census
+
+    def test_this_lane_holds_one_definition_of_the_rule(self) -> None:
+        census = self._census_of_the_reading()
+        in_this_lane = {
+            name: count for name, count in census.items()
+            if name not in self.OTHER_HOLDERS_OF_THE_READING
+        }
         self.assertEqual(
-            offenders, [],
+            in_this_lane, {},
             "a second copy of the avatar rule appeared outside "
-            "mob_avatar_basename.py: %s" % offenders,
+            "mob_avatar_basename.py: %s" % sorted(in_this_lane),
+        )
+
+    def test_the_other_holders_of_the_reading_are_counted_not_skipped(
+            self) -> None:
+        census = self._census_of_the_reading()
+        counted = {
+            name: count for name, count in census.items()
+            if name in self.OTHER_HOLDERS_OF_THE_READING
+        }
+        self.assertEqual(
+            counted, self.OTHER_HOLDERS_OF_THE_READING,
+            "the census of files outside this lane that hold the same "
+            "first-token reading changed.  This test does not forbid that "
+            "-- those are LANE-A's files -- it forbids it happening "
+            "silently.  Re-measure, update the census, and say in the round "
+            "file which file grew or lost a copy.",
+        )
+
+    def test_the_census_would_see_a_partition_spelling(self) -> None:
+        # The mutant D9 named: the same reading spelled with ``partition``.
+        # Written as a check on the matcher itself rather than on a file, so
+        # it stays true when no file in the tree spells it that way.
+        line = "        preset = cell.partition(';')[0]"
+        self.assertTrue(
+            any(idiom in line for idiom in self.FIRST_TOKEN_IDIOMS),
+            "partition(';') is the same reading and must be matched",
+        )
+        old_pattern_only = "split(';')" in line or 'split(";")' in line
+        self.assertFalse(
+            old_pattern_only,
+            "this line is exactly the one the pre-vavm4h grep missed; if it "
+            "now matches the old pattern the mutant has stopped being one",
         )
 
 

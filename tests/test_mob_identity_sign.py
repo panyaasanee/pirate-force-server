@@ -119,11 +119,245 @@ class TestTheAllocator(unittest.TestCase):
         with self.assertRaises(mis.MobIdentitySignError):
             mis.mob_wire_identity(1, mis.SCENE_STRIDE)
 
+    def test_the_band_ascends_with_the_placement_index(self):
+        """COO decision 1642 option 3, as the assertion the four readers need.
+
+        Not "is negative" and not "is unique" -- ORDER.  ``load_roster``
+        hands rows out in placement order, ``CombatLedger`` refuses a
+        roster that is not ascending, ``open_register`` sorts by identity
+        silently, and the census ships in roster order.
+        """
+        for scene_id in (0, 1, 14, 126, 999, mis.SCENE_ID_CEILING - 1):
+            with self.subTest(scene=scene_id):
+                rows = [
+                    mis.mob_wire_identity(scene_id, placement)
+                    for placement in range(0, 80)
+                ]
+                self.assertEqual(rows, sorted(rows))
+                self.assertEqual(len(set(rows)), len(rows))
+
+    def test_the_band_ascends_with_the_scene_id_too(self):
+        """So a ledger that ever holds two scenes sorts the same way."""
+        rows = [
+            mis.mob_wire_identity(scene_id, placement)
+            for scene_id in range(0, 40)
+            for placement in range(0, 30)
+        ]
+        self.assertEqual(rows, sorted(rows))
+
+    def test_every_scene_declares_a_block_that_holds_its_own_stride(self):
+        for scene_id in (0, 1, 14, 999, mis.SCENE_ID_CEILING - 1):
+            with self.subTest(scene=scene_id):
+                first, last = mis.scene_band_bounds(scene_id)
+                self.assertEqual(last - first + 1, mis.SCENE_STRIDE)
+                self.assertEqual(
+                    first, mis.mob_wire_identity(scene_id, 0))
+                self.assertEqual(
+                    last,
+                    mis.mob_wire_identity(scene_id, mis.SCENE_STRIDE - 1))
+                self.assertLess(last, 0)
+
+    def test_no_scenes_block_runs_into_the_next(self):
+        previous_last = None
+        for scene_id in range(0, 200):
+            first, last = mis.scene_band_bounds(scene_id)
+            if previous_last is not None:
+                self.assertEqual(first, previous_last + 1)
+                self.assertGreater(first, previous_last)
+            previous_last = last
+
+    def test_a_scene_id_past_the_block_ceiling_is_refused_not_wrapped(self):
+        """The overflow the COO approval names: loud, not folded back.
+
+        Asserted as a REFUSAL and as a non-collision, because the failure
+        being guarded against is not "an exception did not happen", it is
+        "scene N quietly got scene 0's identities".
+        """
+        for scene_id in (
+            mis.SCENE_ID_CEILING,
+            mis.SCENE_ID_CEILING + 1,
+            mis.SCENE_ID_CEILING * 4,
+        ):
+            with self.subTest(scene=scene_id):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.mob_wire_identity(scene_id, 0)
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_band_bounds(scene_id)
+
+    def test_the_two_entry_points_refuse_the_same_scene_ids(self):
+        """A block a caller can be told about is a block it can allocate in."""
+        for scene_id in (-1, 0, 1, 999, mis.SCENE_ID_CEILING - 1,
+                         mis.SCENE_ID_CEILING, True, "14"):
+            with self.subTest(scene=scene_id):
+                bounds_raised = allocator_raised = False
+                try:
+                    mis.scene_band_bounds(scene_id)
+                except mis.MobIdentitySignError:
+                    bounds_raised = True
+                try:
+                    mis.mob_wire_identity(scene_id, 0)
+                except mis.MobIdentitySignError:
+                    allocator_raised = True
+                self.assertEqual(bounds_raised, allocator_raised)
+
+    def test_a_negative_scene_id_is_refused_by_both_entry_points(self):
+        """pf-adversary round 6okcq4, D5: the agreement oracle is not enough.
+
+        ``test_the_two_entry_points_refuse_the_same_scene_ids`` only asserts
+        that the two doors agree, so deleting the ``scene_id < 0`` refusal
+        left the suite green with BOTH doors accepting -1 -- and then
+        ``mob_wire_identity(-1, 0)`` hands out a plausible negative identity
+        in no scene's block while ``scene_and_placement_for`` refuses it.
+        Dispenser and inverse disagreeing silently is the one thing this
+        module exists to prevent, so the refusal is named here.
+        """
+        for scene_id in (-1, -2, -4096):
+            with self.subTest(scene=scene_id):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.mob_wire_identity(scene_id, 0)
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_band_bounds(scene_id)
+
+    def test_the_inverse_refuses_the_gap_between_the_base_and_the_floor(self):
+        """pf-adversary round 6okcq4, D6: the gap nothing walked.
+
+        The band occupies [-16,777,280, -65].  Below it, all the way down to
+        the floor at -2**62, is empty -- numerically almost the whole
+        negative half of the wire field -- and no test walked one value of
+        it, so the two guards that cover it (below the base, below the
+        floor) masked each other and neither was pinned.  With the
+        below-base guard removed, -16,777,281 decodes to SCENE -1.
+        """
+        for identity in (
+            mis.MOB_IDENTITY_BASE - 1,
+            mis.MOB_IDENTITY_BASE - 4096,
+            -1_000_000_000,
+            -(2**61),
+            mis.MOB_IDENTITY_FLOOR,
+            mis.MOB_IDENTITY_FLOOR - 1,
+        ):
+            with self.subTest(identity=identity):
+                with self.assertRaises(mis.MobIdentitySignError):
+                    mis.scene_and_placement_for(identity)
+
+    def test_the_sweep_head_is_guarded_at_the_end_of_the_band_it_touches(self):
+        """pf-adversary round 6okcq4, D8: the old pin watched the far end.
+
+        Under the descending band, scene 0 placement 0 sat next to the
+        reserved head, so a loop over the first scenes covered the hazard.
+        Ascending, the only identities that can reach the sweep's -1..-6 are
+        the LAST placements of the LAST block -- 16.7 million away from
+        where the sibling test looks.  This walks that end.
+        """
+        from pirateforce_foundation import name_colour_sweep as ncs
+
+        sweep = {
+            ncs.negative_identity_for(label)
+            for label in ncs.NEGATIVE_IDENTITY_SLOTS
+        }
+        self.assertTrue(sweep)
+        for scene_id in range(mis.SCENE_ID_CEILING - 2, mis.SCENE_ID_CEILING):
+            for placement in range(mis.SCENE_STRIDE - 80, mis.SCENE_STRIDE):
+                self.assertNotIn(
+                    mis.mob_wire_identity(scene_id, placement), sweep)
+        # and the one step past the ceiling that WOULD land on the sweep is
+        # refused rather than handed out
+        with self.assertRaises(mis.MobIdentitySignError):
+            mis.mob_wire_identity(mis.SCENE_ID_CEILING, mis.SCENE_STRIDE - 6)
+
+    def test_every_scene_id_the_tree_names_fits_inside_the_ceiling(self):
+        """The ceiling is a declared bound; this is the measurement under it."""
+        from pirateforce_foundation.gm import scene_catalog
+
+        known = sorted(scene_catalog.SCENE_ID_TO_NAME)
+        self.assertTrue(known)
+        self.assertLess(known[-1], mis.SCENE_ID_CEILING)
+        for scene_id in known:
+            self.assertTrue(mis.is_mob_identity(
+                mis.mob_wire_identity(scene_id, 0)))
+
+    def test_the_whole_band_stays_clear_of_the_floor(self):
+        """Both ends, so widening one constant cannot silently cross it."""
+        lowest = mis.mob_wire_identity(0, 0)
+        highest = mis.mob_wire_identity(
+            mis.SCENE_ID_CEILING - 1, mis.SCENE_STRIDE - 1)
+        self.assertEqual(lowest, mis.MOB_IDENTITY_BASE)
+        self.assertGreater(lowest, mis.MOB_IDENTITY_FLOOR)
+        self.assertLess(highest, 0)
+        self.assertEqual(highest, -(mis.SWEEP_RESERVED_IDENTITIES + 1))
+
     def test_the_inverse_refuses_identities_it_could_not_have_made(self):
         for identity in (0, 1, 0x2001, mis.MOB_IDENTITY_FLOOR - 1):
             with self.subTest(identity=identity):
                 with self.assertRaises(mis.MobIdentitySignError):
                     mis.scene_and_placement_for(identity)
+
+
+class TestTheWallBeatTwoWalksIntoTests(unittest.TestCase):
+    """The shared world registry refuses every identity this band hands out.
+
+    MEASURED THIS ROUND, not predicted.  ``world_scene_registry`` is
+    LANE-A's book and this lane writes combat state INTO it (NOW.md: "A =
+    registry - B writes combat state into A's registry"), so this lane may
+    not change it.  Its ``_require_identity`` accepts ``1 <= identity <=
+    0xFFFFFFFF``; every value :func:`mob_wire_identity` produces is
+    negative, so ``note_position`` and ``note_balance`` come back with
+    reason ``bad_identity`` and remember NOTHING.
+
+    WHY THIS IS A PIN AND NOT A BUG REPORT.  Those two doors do not raise --
+    they return a ``NoteOutcome``.  So the day beat 2 flips a scene onto the
+    band, every monster in that scene stops being written to the shared
+    world with no exception anywhere: the arrival census reads an empty
+    book, and a second player entering the scene sees monsters standing at
+    their table positions with full HP no matter what the first player did
+    to them.  That is a silent player-visible defect, which is the exact
+    shape this house pins in a test rather than leaves in prose.
+
+    LAYER, because an earlier draft of this docstring called it
+    player-visible (pf-adversary, round 6okcq4): what is MEASURED below is
+    a wire/DB fact -- the row is not written and the caller is not told.
+    The sentence above about what a second player would see is the
+    INFERENCE that makes it worth fixing, through a census path nobody has
+    booted.  Nothing here has been on a screen.
+
+    This test goes RED the day LANE-A widens the gate, and that is the day
+    it should be rewritten to assert the new reach.  The ask is
+    ``notes_to_chief/20260908_1941_LANE-B-ASK-COO-the-world-registry-
+    refuses-every-band-identity.md``.
+    """
+
+    def test_the_registry_refuses_a_band_identity_on_both_doors(self):
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        identity = mis.mob_wire_identity(2, 0)
+        self.assertLess(identity, 0)
+        for outcome in (
+            registry.note_position("Bg0002", identity, (1.0, 2.0, 3.0)),
+            registry.note_balance("Bg0002", identity, 10, 20),
+        ):
+            self.assertEqual(outcome.reason, wsr.REFUSE_BAD_IDENTITY)
+            self.assertIsNone(outcome.remembered)
+
+    def test_it_is_the_sign_and_not_something_else_about_the_value(self):
+        """The legacy positive formula goes in through the same door."""
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        outcome = registry.note_position("Bg0002", 0x2001, (1.0, 2.0, 3.0))
+        self.assertEqual(outcome.reason, "")
+        self.assertIsNotNone(outcome.remembered)
+
+    def test_the_refusal_is_returned_rather_than_raised(self):
+        """Which is why nothing upstream would notice the loss."""
+        from pirateforce_foundation import world_scene_registry as wsr
+
+        registry = wsr.WorldSceneRegistry()
+        identity = mis.mob_wire_identity(2, 5)
+        outcome = registry.note_balance("Bg0002", identity, 1, 2)
+        self.assertEqual(outcome.reason, wsr.REFUSE_BAD_IDENTITY)
+        # nothing was written, and no caller was told by an exception
+        self.assertEqual(registry.remembered("Bg0002"), ())
 
 
 class TestTheBandDoesNotStealTheSweepsIdentities(unittest.TestCase):

@@ -785,16 +785,27 @@ class ScenarioGateTests(unittest.TestCase):
             if frame_lane in path.read_text(encoding="utf-8")
             and path.name != f"{frame_lane}.py"
         )
+        # skill_learn_roundtrip.py is the THIRD importer, added by LANE-CS
+        # round `8wzpyw` under COO-DECISION 20260908_1742 ("you fix the pins
+        # your own frame turns red").  It is the same answer the login lane
+        # is: it needs the 0x673C body SHAPE to tell a client her learn
+        # succeeded, and nothing else -- no step plan, no scenario object.
+        # The list stays EXACT for exactly the reason the comment above the
+        # sweep-lane list gives; a fourth importer still shows up here as a
+        # failure, and the guards below now cover three callers instead of
+        # two.
         self.assertEqual(
             frame_importers,
             [
                 f"{module}.py",
+                "skill_learn_roundtrip.py",
                 "skill_list_at_login.py",
             ],
         )
-        # ... and both sides really import it, so "one shape, two callers" is
-        # measured rather than asserted in prose.
-        for name in (f"{module}.py", "skill_list_at_login.py"):
+        # ... and every side really imports it, so "one shape, three callers"
+        # is measured rather than asserted in prose.
+        for name in (f"{module}.py", "skill_list_at_login.py",
+                     "skill_learn_roundtrip.py"):
             self.assertIn(
                 f"from .{frame_lane} import",
                 (SRC_ROOT / name).read_text(encoding="utf-8"),
