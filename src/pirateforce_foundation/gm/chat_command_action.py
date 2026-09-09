@@ -7303,15 +7303,31 @@ def _skill_action(
             say_wire.SKILL_REFUSED_NOTICE_TEXT,
             SKILL_REFUSED_NOTICE_ACTION_LABEL,
             f"{OUTCOME_SKILL_REFUSED_PREFIX}{result.refusal}",
-            # THE SAME FIX AS `_job_action`'s (pf-adversary round `nkb608`,
-            # D-B), and this branch is the one that was measured lying: a
-            # character removed halfway through the 137 grants refuses with
-            # `granted=20` on the console and, one line later, told the
-            # operator everything in hand was dropped -- with 20 rows on
-            # disk and no deleter in this lane that could have taken them
-            # off.  An always-`False` undo reaches the console as "the
-            # effect was KEPT", which is what those 20 rows are.
-            (lambda: False) if result.granted else None,
+            # NO UNDO ON THIS BRANCH, AND NOW THAT IS THE TRUE SENTENCE.
+            # ~~"the same fix as `_job_action`'s (pf-adversary round
+            # `nkb608`, D-B) ... a character removed halfway through the 137
+            # grants refuses with `granted=20` on the console and, one line
+            # later, told the operator everything in hand was dropped -- with
+            # 20 rows on disk ... an always-`False` undo reaches the console
+            # as 'the effect was KEPT', which is what those 20 rows are"~~ --
+            # STRUCK (pf-adversary round `ve2zs4`, D9, "a dead undo branch").
+            # Both halves were true OF THE PER-ID LOOP, and round `ve2zs4`
+            # deleted that loop.  `grant_all` now hands the whole id list to
+            # one `BEGIN IMMEDIATE` transaction, so a refusal cannot arrive
+            # with rows on disk, and EVERY refusal it can construct carries
+            # `granted=0` -- which made the `if result.granted` half
+            # unreachable: the conditional read as a live safeguard while
+            # only ever selecting `None`.  Removing it changes no behaviour
+            # today and stops the file claiming a branch it does not have.
+            #
+            # `test_no_refusal_this_command_can_produce_leaves_rows_behind`
+            # is the pin, and it is the pin that MATTERS: it enumerates
+            # `grant_all`'s refusals and fails if any of them ever comes back
+            # with `granted` non-zero.  A future round that gives this
+            # command a second, non-transactional writer therefore gets a red
+            # test naming this line, rather than a console that quietly
+            # starts lying again.
+            None,
         )
     _note(session, EVENT_SKILL_ROWS_WRITTEN)
     return _skill_notice(

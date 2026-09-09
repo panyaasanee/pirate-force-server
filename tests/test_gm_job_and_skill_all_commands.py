@@ -1528,5 +1528,213 @@ class TheFixesOfRoundNkb608Tests(_Case):
                     )
 
 
+class TheFixesOfRoundVe2zs4D6AndD9Tests(_Case):
+    """The last two unpaid findings of pf-adversary round `ve2zs4`.
+
+    D7, D8 and D10 were paid in round `bb6jhm`.  D6 and D9 are the two that
+    round handed on because neither could be fixed by reading the diff --
+    D6 needed a decision about how a lane recognises another lane's
+    exception, and D9 arrived as one line with no detail and had to be
+    re-measured from the source.  Every case here ran GREEN against the
+    defect it names before the fix, or it would not be a pin.
+    """
+
+    # ---- D6: `except RuntimeError` said "read schema_migrations" to every
+    #          RuntimeError a store can raise -------------------------------
+    def test_a_runtime_error_the_grant_door_did_not_sign_is_not_blamed_on_018(
+        self,
+    ):
+        # THE DEFECT: `store` is annotated `object`, so any object carrying
+        # `grant_gm_skills` is accepted, and `RuntimeError` is a type the
+        # standard library itself raises for unrelated reasons (a generator
+        # re-entered, a dict mutated while iterated).  Before the fix EVERY
+        # one of them came back as `grant_transaction_rolled_back`, whose
+        # console sentence sends the operator to inspect `schema_migrations`
+        # on a database that has nothing wrong with it.
+        class ReentrantStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                raise RuntimeError("dictionary changed size during iteration")
+
+        store = ReentrantStore()
+        result = skill_all_command.grant_all(store, 1)
+        self.assertFalse(result.ok)
+        self.assertEqual(
+            result.refusal, skill_all_command.REFUSED_NOTHING_GRANTED
+        )
+        # The TYPE is named, and no migration is.
+        self.assertIn("RuntimeError:", result.detail)
+        self.assertIn("dictionary changed size", result.detail)
+        self.assertNotIn("018", result.detail)
+        self.assertNotIn("migration", result.detail.lower())
+        # Nothing was written, and the numbers measured before the call are
+        # still reported -- the same contract the generic branch always had.
+        self.assertEqual(result.granted, 0)
+        self.assertEqual(store.skills, [])
+        self.assertEqual(result.failed, class_skill_curriculum.SKILL_COUNT)
+
+    def test_the_signed_rollback_message_still_earns_the_specific_reason(self):
+        # THE OTHER DIRECTION, and the one that would go quietly wrong: a
+        # signature check that is too strict turns the real, useful refusal
+        # into the generic one, and the operator loses the sentence naming
+        # migration 018.  This is the message shape `SQLiteStore` really
+        # raises (the real-store case above builds a database stopped at 017
+        # and gets it for real).
+        class RolledBackStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                self.grants.append((character_id, tuple(skill_ids)))
+                raise RuntimeError(
+                    "grant_gm_skills: 137 of 137 id(s) for character 1 did "
+                    "not reach character_skills (first missing: 7). The "
+                    "usual cause is a database that has not applied "
+                    "migrations/018_character_skills_gm_grant_source.sql"
+                )
+
+        result = skill_all_command.grant_all(RolledBackStore(), 1)
+        self.assertEqual(
+            result.refusal, skill_all_command.REFUSED_GRANT_ROLLED_BACK
+        )
+        self.assertIn("rolled its whole transaction back", result.detail)
+
+    def test_the_grant_door_still_signs_its_rollback_message(self):
+        # THE PIN THAT MAKES THE SIGNATURE A COUPLING AND NOT A GUESS.  This
+        # lane may not declare a shared exception class -- that would have to
+        # live in `store.py`, which is LANE-DB's zone -- so the coupling is
+        # to a string, and a string coupling that nothing watches is exactly
+        # how a lane ends up silently downgrading a refusal it still needs.
+        # Reading the door's own source means this case dies the moment
+        # LANE-DB rewords that `raise`, and the failure names this module.
+        import inspect
+
+        source = inspect.getsource(SQLiteStore.grant_gm_skills)
+        signature = skill_all_command.GRANT_DOOR_ROLLBACK_SIGNATURE
+        # NOT just "the string appears in the file": it has to appear in the
+        # text the `raise RuntimeError(` statement builds, or the pin passes
+        # while the message it stands for has moved.  The door raises
+        # `RuntimeError` exactly once.
+        raises = source.split("raise RuntimeError(")
+        self.assertEqual(
+            len(raises), 2,
+            "grant_gm_skills no longer raises RuntimeError exactly once; "
+            "skill_all_command.GRANT_DOOR_ROLLBACK_SIGNATURE has to be "
+            "re-derived from whatever it raises now",
+        )
+        self.assertIn(
+            signature, raises[1],
+            "grant_gm_skills' rollback message no longer opens with "
+            f"{signature!r}, so grant_all would report every one of its "
+            "rollbacks as the generic no_skill_could_be_granted",
+        )
+
+    # ---- D9: a dead undo branch ----------------------------------------
+    def test_no_refusal_this_command_can_produce_leaves_rows_behind(self):
+        # THE MEASUREMENT BEHIND D9.  `_skill_action`'s refusal path used to
+        # read `(lambda: False) if result.granted else None` -- a live-looking
+        # safeguard for a refusal that left rows on disk.  That case belonged
+        # to the per-id loop round `ve2zs4` deleted.  The bulk door is one
+        # transaction, so every refusal `grant_all` can construct carries
+        # `granted=0` and the conditional could only ever pick `None`.
+        #
+        # THIS is the pin, not the deleted line: a future round that gives
+        # `/skill all` a second, non-transactional writer gets a red test
+        # here, and has to put an undo back before its refusal can lie.
+        import re
+
+        source = (
+            ROOT / "src/pirateforce_foundation/gm/skill_all_command.py"
+        ).read_text(encoding="utf-8")
+        body = source.split("def grant_all(")[1].split("\ndef ")[0]
+        constructions = re.findall(
+            r"SkillGrant\(\s*(?:#[^\n]*\n\s*)*([^,]+),", body
+        )
+        self.assertTrue(constructions, "no SkillGrant construction found")
+        # Every construction whose first field is not the literal 0 has to be
+        # a SUCCESS (`refusal=None`); the two that are not literal zeros are
+        # checked by behaviour below rather than by reading.
+        for first in constructions:
+            with self.subTest(granted=first.strip()):
+                self.assertIn(
+                    first.strip(), {"0", "outstanding", "granted"},
+                    "a new SkillGrant field order or a new first-field "
+                    "expression: re-derive this case before trusting it",
+                )
+
+        # And the behaviour, which is what the console actually depends on.
+        # One case per reachable refusal, driven through the real function.
+        class NoGrantDoor(FakeStore):
+            grant_gm_skills = None
+
+        class UnreadableStore(FakeStore):
+            list_character_skills = None
+
+        class MissingRowStore(FakeStore):
+            def list_character_skills(self, character_id):
+                raise KeyError(character_id)
+
+        class RaisingStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                raise RuntimeError("grant_gm_skills: 1 of 1 id(s) missing")
+
+        class SilentStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                return ()
+
+        class KeyErrorStore(FakeStore):
+            def grant_gm_skills(self, character_id, skill_ids):
+                raise KeyError(character_id)
+
+        refusals = [
+            ("bad character id", FakeStore(), 0),
+            ("no grant door", NoGrantDoor(), 1),
+            ("unreadable before", UnreadableStore(), 1),
+            ("row missing", MissingRowStore(), 1),
+            ("door raised KeyError", KeyErrorStore(), 1),
+            ("door rolled back", RaisingStore(), 1),
+            ("door wrote nothing", SilentStore(), 1),
+        ]
+        for name, store, character_id in refusals:
+            with self.subTest(refusal=name):
+                result = skill_all_command.grant_all(store, character_id)
+                self.assertFalse(
+                    result.ok, f"{name} was expected to refuse"
+                )
+                self.assertEqual(
+                    result.granted, 0,
+                    f"the {name} refusal reports granted={result.granted}; "
+                    "a refusal that wrote rows needs an undo back in "
+                    "chat_command_action._skill_action or the console will "
+                    "say the rows were dropped",
+                )
+
+    def test_a_refused_skill_all_tells_the_operator_nothing_was_kept(self):
+        # THE CONSOLE HALF, end to end through the dispatcher: a refusal now
+        # carries no undo, and `_make_action` reads the absence of one as
+        # "anything it had in hand was dropped with it" -- which is the TRUE
+        # sentence for a transaction that rolled back, and was the false one
+        # only while the loop existed.
+        session = FakeSession()
+        self.store_of(session).grant_raises = RuntimeError(
+            "grant_gm_skills: 137 of 137 id(s) did not reach character_skills"
+        )
+        action, line = self.act_capturing_stderr(session, "/skill all")
+        self.assertEqual(
+            action[0], chat_command_action.SKILL_REFUSED_NOTICE_ACTION_LABEL
+        )
+        self.assertIn(skill_all_command.CONSOLE_TOKEN, line)
+        self.assertIn("REFUSED", line)
+        self.assertIn("granted=0", line)
+        self.assertIn(skill_all_command.REFUSED_GRANT_ROLLED_BACK, line)
+        # and the store really did keep nothing -- which is what makes the
+        # missing undo the honest answer rather than the convenient one.
+        self.assertEqual(self.store_of(session).skills, [])
+        self.assertEqual(
+            self.outcomes(),
+            [
+                chat_command_action.OUTCOME_SKILL_REFUSED_PREFIX
+                + skill_all_command.REFUSED_GRANT_ROLLED_BACK
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

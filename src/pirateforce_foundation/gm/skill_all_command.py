@@ -141,6 +141,25 @@ REFUSED_NOTHING_GRANTED = "no_skill_could_be_granted"
 #: `schema_migrations` on the database this process opened -- and the
 #: generic reason would have sent the operator hunting a broken store.
 REFUSED_GRANT_ROLLED_BACK = "grant_transaction_rolled_back"
+#: HOW THIS MODULE RECOGNISES THAT ROLLBACK AND NOTHING ELSE (pf-adversary
+#: round `ve2zs4`, D6).  `store` is annotated `object` on purpose -- any
+#: object carrying the door is accepted -- so "the exception was a
+#: `RuntimeError`" is NOT evidence that it came from the read-back above.
+#: `RuntimeError` is also what a generator raises on a re-entered
+#: `__next__`, what `dict` iteration raises when it is mutated underneath,
+#: and what any wrapper store may raise for reasons of its own; every one
+#: of those would have been reported to the operator as "go and read
+#: `schema_migrations` on this database", sending her to inspect a database
+#: that is fine.  `SQLiteStore.grant_gm_skills` opens its rollback message
+#: with its own name, so the message IS the evidence, and a `RuntimeError`
+#: that does not carry it falls through to the generic branch, which names
+#: the exception TYPE instead of guessing a cause.
+#: THE COUPLING IS PINNED, not assumed: `test_the_grant_door_still_signs_its_
+#: rollback_message` reads `SQLiteStore.grant_gm_skills`'s own source and
+#: fails the moment this string stops being raised there -- the cheap
+#: version of a shared exception class, which would have to be declared in
+#: `store.py` and that file is LANE-DB's zone, not this lane's.
+GRANT_DOOR_ROLLBACK_SIGNATURE = "grant_gm_skills:"
 #: The `before` read is MANDATORY, not best-effort, and that is a change of
 #: posture rather than a new check (pf-adversary round `wv0fpe`, D3).  Every
 #: number this command prints is derived from it; a store that cannot answer
@@ -263,6 +282,33 @@ def _read_skills(store: object, character_id: int) -> object:
         return _ROW_MISSING
     except Exception:  # noqa: BLE001 -- see the docstring
         return None
+
+
+def _unnamed_store_failure(
+    error: BaseException, already: int, outstanding: int
+) -> SkillGrant:
+    """The one sentence for a store exception this module cannot place.
+
+    ONE function and not two copies of the same three lines, because the
+    `RuntimeError` branch now hands its unrecognised cases here (pf-adversary
+    round `ve2zs4`, D6) and two hand-written copies of "name the type" are
+    two sentences that drift apart on the next edit.
+
+    IT NAMES THE TYPE AND DOES NOT GUESS A CAUSE.  That is the whole
+    difference from `REFUSED_GRANT_ROLLED_BACK`: this branch knows only that
+    the door raised, so `RuntimeError: dictionary changed size during
+    iteration` is what the operator reads, and she goes and looks at the
+    store that raised it rather than at a `schema_migrations` table that has
+    nothing wrong with it.  `granted` is zero here because the door raised
+    instead of returning; `already` and `outstanding` are this run's own
+    measurements from before the call and stay reported, for the reason
+    `console_line` gives (a refusal that prints no numbers reads as "nothing
+    happened").
+    """
+    return SkillGrant(
+        0, already, outstanding, True, REFUSED_NOTHING_GRANTED,
+        f"{type(error).__name__}: {error}",
+    )
 
 
 def grant_all(store: object, character_id: object) -> SkillGrant:
@@ -427,19 +473,27 @@ def grant_all(store: object, character_id: object) -> SkillGrant:
         # same refusal; the sentence now names what to READ instead.  The
         # branch itself is chief's -- LANE-DB asked about it in
         # `pf_bridge/notes_to_chief/20260905_0254` and it is still open.
+        #
+        # ~~caught by TYPE alone~~ -- STRUCK (pf-adversary round `ve2zs4`,
+        # D6).  See `GRANT_DOOR_ROLLBACK_SIGNATURE`: only the door's own
+        # signed message earns this reason; every other `RuntimeError` is
+        # re-raised into the generic handler below, which names its type.
+        # Re-raising rather than duplicating that handler's body keeps ONE
+        # place where an unrecognised store exception is turned into a
+        # sentence, which is what stopped these two branches drifting apart.
+        if GRANT_DOOR_ROLLBACK_SIGNATURE not in str(error):
+            return _unnamed_store_failure(error, already, outstanding)
         return SkillGrant(
             0, already, outstanding, True, REFUSED_GRANT_ROLLED_BACK,
             f"the grant door rolled its whole transaction back: {error}",
         )
     except Exception as error:  # noqa: BLE001 -- named, never escaping
         # `WriteLockTimeout`, a `TypeError`/`ValueError` from a door whose
-        # contract moved, or anything else a store can raise.  All of them
+        # contract moved, an UNSIGNED `RuntimeError` handed down from the
+        # branch above, or anything else a store can raise.  All of them
         # arrive before or instead of a commit, so the counts are zero and
         # the exception TYPE is named for the operator.
-        return SkillGrant(
-            0, already, outstanding, True, REFUSED_NOTHING_GRANTED,
-            f"{type(error).__name__}: {error}",
-        )
+        return _unnamed_store_failure(error, already, outstanding)
     try:
         after = frozenset(int(i) for i in returned)
     except Exception:  # noqa: BLE001 -- a door that returned another shape
