@@ -186,5 +186,57 @@ class TheAllocatorHasNotMovedYetTests(unittest.TestCase):
                 % mob.placement_index)
 
 
+class NoModuleWritesItsOwnRangeRuleTests(unittest.TestCase):
+    """The COO's own token, made permanent as a census.
+
+    ``COO-DECISION 20260909_1312`` gives the check by hand:
+
+        git grep -n "0xFFFFFFFF\\b|<= 0|<=0" src/pirateforce_foundation/mob_*.py
+
+    -- and asks that it leave no self-written range rule behind.  A grep a
+    human runs once is a grep nobody runs again, so it is a test here, and a
+    HAND-WIDENED one: the expected set is written out, so a new private rule
+    cannot appear without someone reading this list and saying why.
+
+    It reads TOKENS, not lines, so the four docstrings that quote the old
+    ``identity <= 0`` while explaining why it is gone do not count as rules.
+    """
+
+    #: The one hand-written actor-identity range rule this lane still owns,
+    #: and the reason it is still here rather than converted with the rest:
+    #: NOW.md `2055` holds the second wall at this line until lane A's
+    #: registry gate lands on main.  When that gate lands, this entry is
+    #: removed in the SAME commit that converts the line.
+    HELD_BY_NOW_2055 = {("mob_ai_player_damage.py", "actor")}
+
+    def test_the_only_private_identity_rule_left_is_the_one_now_md_holds(self):
+        import io
+        import re
+        import tokenize
+
+        source_root = ROOT / "src" / "pirateforce_foundation"
+        pattern = re.compile(r"^(actor|identity|\w*_identity)$")
+        found = set()
+        for path in sorted(source_root.glob("mob_*.py")):
+            if path.name == "mob_identity_sign.py":
+                continue  # the one place the rule is allowed to live
+            text = path.read_text(encoding="utf-8")
+            tokens = [
+                token for token in
+                tokenize.generate_tokens(io.StringIO(text).readline)
+                if token.type not in (tokenize.COMMENT, tokenize.STRING,
+                                      tokenize.NL, tokenize.NEWLINE,
+                                      tokenize.INDENT, tokenize.DEDENT)
+            ]
+            for first, second, third in zip(tokens, tokens[1:], tokens[2:]):
+                if second.string not in ("<", "<=", ">", ">="):
+                    continue
+                if third.string != "0":
+                    continue
+                if pattern.match(first.string):
+                    found.add((path.name, first.string))
+        self.assertEqual(found, self.HELD_BY_NOW_2055)
+
+
 if __name__ == "__main__":  # pragma: no cover - parity with the lane's files
     unittest.main()
