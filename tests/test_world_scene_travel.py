@@ -853,14 +853,39 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
     DOOR_SHUT_PATTERNS = (
         # Field-literal form: "login_entry_allowed: false", tolerant of the
         # line wrap and comment-hash a ``# ...`` continuation inserts
-        # between the colon and the word (measured: this exact break
-        # occurs twice in lane_a_scene_census.py and would otherwise dodge
-        # a plain substring check).
+        # between the colon and the word.
+        # ~~measured: this exact break occurs twice in
+        # lane_a_scene_census.py~~ -- STRUCK, MEASURED FALSE, LANE-A round
+        # 9ic0io (pf-adversary A1 on round ynfhoc).  Re-derived by running
+        # both regexes over the file: the wrapped form
+        # (`login_entry_allowed:` + newline + `# false`) occurs ONCE, at
+        # `lane_a_scene_census.py:293`; the four other hits are the plain
+        # one-line form a substring check would already catch.  The
+        # tolerance is still worth having -- one dodge is a dodge -- but it
+        # is bought for one site, not two, and the number was written here
+        # without being counted.
         re.compile(r"login_entry_allowed\s*:?[\s#]*false", re.IGNORECASE),
         # Prose forms naming the same fact without the field syntax.
         re.compile(r"ordinary login (?:path )?(?:still )?refuses",
                     re.IGNORECASE),
         re.compile(r"login door is shut", re.IGNORECASE),
+        # ADDED LANE-A round 9ic0io (pf-adversary A2 on round ynfhoc, which
+        # is where this gap was measured rather than guessed): in
+        # lane_a_scene_census.py a composer that is "registered, never
+        # fired" is a composer the admission check declines, which is the
+        # same claim as a shut door said in this file's own vocabulary.
+        # Two of these survived a strike-and-replace in round ynfhoc,
+        # sitting in the same sentence as their own replacement, and the
+        # three patterns above matched neither - so the case that round
+        # widened could not see the contradiction it was widened to catch.
+        # The phrase is deliberately NOT written anywhere in this file
+        # outside this pattern: the sources scanned include the file this
+        # pattern is written in only insofar as they are read from disk, but
+        # the census file's own explanatory prose is scanned, so an
+        # explanation that quotes the phrase would flag itself.  That is
+        # exactly the trap the strike comments in lane_a_scene_census.py:303
+        # and :329 had to be re-worded around.
+        re.compile(r"registered,?\s*(?:but\s*)?never fired", re.IGNORECASE),
     )
 
     @staticmethod
@@ -904,13 +929,26 @@ class NoCommentClaimsADoorThisRegistryOpened(unittest.TestCase):
         """Which destination a JSON claim is about.
 
         PREFERS AN EXPLICIT ``scene N`` MENTION close before the match,
-        because this registry's narrative fields routinely discuss ANOTHER
-        scene for comparison from inside a destination's own object -
-        measured: destination 997's own status text quotes "scene 14 is
-        pinned with login_entry_allowed FALSE" verbatim, and attributing
-        that to 997 (its container) rather than 14 (who the sentence is
-        actually about) would be exactly the misattribution this docstring
-        warns about.
+        because a claim in this registry routinely names a scene that is
+        not the object it is sitting inside.
+        ~~measured: destination 997's own status text quotes "scene 14 is
+        pinned with login_entry_allowed FALSE" verbatim~~ -- STRUCK,
+        MEASURED FALSE, LANE-A round 9ic0io (pf-adversary A1 on round
+        ynfhoc).  What is actually there, re-derived by locating the string
+        in the file and asking `json` which container holds it: the sentence
+        is in the registry's TOP-LEVEL ``nonclaims`` array (index 12, and
+        struck there since round ynfhoc), not in destination 997's status
+        text - 997's own status reads
+        ``never_sent_to_any_client_by_this_project``.
+
+        THE EXAMPLE STILL HOLDS, and is in fact the sharper one: the nearest
+        preceding ``"n_id"`` before that sentence IS 997, because the
+        nonclaims array is written after the destinations, so the n_id
+        fallback below would hand this claim to 997 - a destination the
+        sentence has nothing to do with.  That is the misattribution the
+        explicit-number branch exists to prevent, and it is a file-level
+        claim being pulled into the last destination's object rather than
+        one destination's prose being pulled into another's.
 
         THE "OTHER" WORD WINS OVER AN EXPLICIT NUMBER, CHECKED FIRST AND IN
         A WIDE ENOUGH WINDOW TO REACH ONE - a real, observed shape in this

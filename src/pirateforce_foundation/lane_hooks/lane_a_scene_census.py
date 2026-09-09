@@ -300,8 +300,15 @@ _CONSOLE_LINES_OF = {
     # COO-DECISION 20260830_1441), so its row has read
     # ``login_entry_allowed: true`` since that round, and THE ADMISSION
     # CHECK'S first arm has admitted this composer's calls in production
-    # ever since - registered, never fired, exactly as scene 14's own composer
-    # sat for several rounds before COO-DECISION 20260829_2342 opened it.
+    # ever since.  ~~registered, never fired, exactly as scene 14's own
+    # composer sat for several rounds before COO-DECISION 20260829_2342
+    # opened it~~ -- STRUCK, LANE-A round 9ic0io (pf-adversary A2 on round
+    # ynfhoc): that tail is the sentence the strike above REPLACED, left
+    # standing behind its own replacement, so one sentence asserted that the
+    # calls are admitted and, four words later, that they are not.  The
+    # build/wire/open split over three rounds is real and is what the ADDED
+    # note records; what is not true, and has not been since scene 4's row
+    # flipped, is that the calls are declined.
     "bg0004_roster": lambda generation: (
         (world_population_bg0004.census_console_line(generation),)
         + world_population_bg0004.actor_lines(generation)
@@ -317,9 +324,13 @@ _CONSOLE_LINES_OF = {
     # pf-adversary addendum on the sibling branch (B3): scene 10 was the
     # SECOND of the ten marker scenes to open (round 3t75jw, same basis,
     # same gate, per the registry's own "why_the_ten_doors_are_shut" note),
-    # so its row has read ``login_entry_allowed: true`` since that round -
-    # registered, never fired, exactly as bg0004's
-    # own composer sat for a round before a later round judged it ready.
+    # so its row has read ``login_entry_allowed: true`` since that round,
+    # and THE ADMISSION CHECK'S first arm has admitted this composer's calls
+    # in production ever since.  ~~registered, never fired, exactly as
+    # bg0004's own composer sat for a round before a later round judged it
+    # ready~~ -- STRUCK, LANE-A round 9ic0io (pf-adversary A2 on round
+    # ynfhoc), same defect as bg0004 above and made in the same pass: the
+    # replaced sentence was left standing behind its replacement.
     "bg0010_roster": lambda generation: (
         (world_population_bg0010.census_console_line(generation),)
         + world_population_bg0010.actor_lines(generation)
