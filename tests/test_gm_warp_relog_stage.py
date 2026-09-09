@@ -38,6 +38,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import MappingProxyType
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,9 +64,35 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
-#: The scene the chief letter sanctions and the login path still bars.  Named
-#: from the map rather than typed, so this file cannot drift from the module.
+#: ~~The scene the chief letter sanctions and the login path still bars.~~
+#: NO SCENE IS SANCTIONED ON MAIN SINCE LANE-GM ROUND `xbfcsi` (2026-09-09,
+#: `COO-DECISION 20260908_2141`): the map is empty.  126 is now the scene the
+#: cases below STAND A SANCTION UP for, through `_install_a_sanction`, because
+#: the road this module owns is only walkable for a sanctioned scene and the
+#: rules on it (which refusal, in which order, printed or silent) are the
+#: module's, not scene 126's.  What the retirement actually did to this road
+#: on main is pinned by `test_retiring_the_sanction_is_loud_and_not_silent`
+#: and `TheRetirementClosedThisRoadTests`, which read the real map.
 SANCTIONED_SCENE = 126
+
+#: The citation the retired row carried.  Only ever a console string.
+SANCTION_CITATION = "CHIEF-DECISION 20260829_1603 item 2"
+
+
+def _install_a_sanction(test, *, scene_id=SANCTIONED_SCENE):
+    """Name one scene in the sanction map for the duration of one test.
+
+    Without it every case that walks this road stops at the first gate
+    (`scene_not_sanctioned`) and passes without reaching the rule it is
+    named for -- a green that no change in `warp_relog_stage` can turn red.
+    """
+    patcher = mock.patch.object(
+        login_scene_admission,
+        "SANCTIONED_BARRED_SCENES",
+        MappingProxyType({scene_id: SANCTION_CITATION}),
+    )
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 #: Marker-backed and login-allowed: the ordinary road, where the durable row
 #: moves and no relog entry is written or wanted.
@@ -98,10 +125,17 @@ class TheMapDecidesNotAConstantTests(unittest.TestCase):
     purpose rather than a surprise in a diff.
     """
 
-    def test_exactly_one_scene_is_sanctioned_today_and_it_is_126(self):
+    def test_no_scene_is_sanctioned_today_so_this_road_is_closed(self):
+        # ~~`test_exactly_one_scene_is_sanctioned_today_and_it_is_126`~~ --
+        # 126's sanction was retired in LANE-GM round `xbfcsi`
+        # (`COO-DECISION 20260908_2141`), so the pin turns over with it: the
+        # map is empty, and this road therefore opens for NOBODY on main
+        # today.  The claim is the same one it always was -- widening this
+        # route is a decision somebody makes on purpose, visible in a diff
+        # here -- and it still goes red if any id appears in the map without
+        # this file being read.
         self.assertEqual(
-            (SANCTIONED_SCENE,),
-            tuple(login_scene_admission.SANCTIONED_BARRED_SCENES),
+            (), tuple(login_scene_admission.SANCTIONED_BARRED_SCENES),
         )
 
     def test_the_module_carries_no_scene_id_literal_of_its_own(self):
@@ -155,10 +189,62 @@ class TheMapDecidesNotAConstantTests(unittest.TestCase):
         )
 
 
+class TheRetirementClosedThisRoadTests(unittest.TestCase):
+    """What the retirement did to THIS road, read off the shipped map.
+
+    No fixture and no patch: every other class here stands a sanction up to
+    keep its rules reachable, and this one is the counterweight that says
+    what an operator actually gets on main today.  `PANYA 1430` (still there
+    after a relog) is off for scene 126 until lane A's login row lands, and
+    the console says so rather than swallowing it -- which is the whole
+    reason `COO-DECISION 20260908_2141` could take that cost.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.accounts_path = self.tmp / "gm_accounts.json"
+        self.accounts_path.write_text(
+            json.dumps({"gm_accounts": ["RELOGGM"]}), encoding="utf-8",
+        )
+        self.config_path = self.tmp / "config" / "gm_login_scene.json"
+
+    def test_warp_126_is_no_longer_staged_and_the_console_announces_it(self):
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            word = warp_relog_stage.stage_relog_entry_after_refused_persist(
+                warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE,
+                SANCTIONED_SCENE,
+                "RELOGGM",
+                gm_accounts_config_path=str(self.accounts_path),
+                login_scene_config_path=str(self.config_path),
+            ).outcome
+        printed = stream.getvalue()
+        self.assertEqual(warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED, word)
+        self.assertIn(warp_relog_stage.FAIL_CONSOLE_TOKEN, printed)
+        self.assertIn(f"scene={SANCTIONED_SCENE}", printed)
+        self.assertIn(
+            f"reason={warp_relog_stage.OUTCOME_SCENE_NOT_SANCTIONED}", printed,
+        )
+        # Announced, never written.
+        self.assertFalse(self.config_path.exists())
+
+    def test_the_line_is_printed_because_lane_a_decreed_an_arrival(self):
+        # The split this road is built on: the announcement exists for a
+        # scene the live warp really moved a character into.  If lane A's
+        # decreed arrival for 126 ever goes away, the case above would be
+        # pinning a silence instead, and this says so first.
+        self.assertTrue(
+            login_scene_admission.scene_has_decreed_arrival(SANCTIONED_SCENE)
+        )
+
+
 class TheRouteOpensOnlyForTheRefusedSanctionedCaseTests(unittest.TestCase):
     """Every non-126 shape returns before anything is written or printed."""
 
     def setUp(self):
+        _install_a_sanction(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -294,6 +380,7 @@ class FailClosedTests(unittest.TestCase):
     """Nobody who is not already a listed GM gets an entry out of this."""
 
     def setUp(self):
+        _install_a_sanction(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -381,6 +468,7 @@ class ThroughTheRealWarpBranchTests(unittest.TestCase):
     """Real store, real lifecycle, real session, the branch a `/warp` takes."""
 
     def setUp(self):
+        _install_a_sanction(self)
         gm_dispatch.reset_rate_limit_state_for_tests()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)

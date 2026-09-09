@@ -231,6 +231,24 @@ def _bare_warp_destinations() -> tuple[int, ...]:
 # `_arrival_census`'s exemptions or narrowing what counts as "reachable".
 SCENES_WITH_NO_CENSUS_COMPOSER_YET: tuple[int, ...] = ()
 
+# A DIFFERENT SILENCE, KEPT UNDER ITS OWN NAME so the two are never read as
+# one.  A scene lands here when it HAS a registered census composer and the
+# composer is never asked, because lane A's census hook declines the scene at
+# admission.  Scene 126 is here since LANE-GM round `xbfcsi` (2026-09-09):
+# its census rode lane A's SECOND admission arm, which asks whether the GM
+# lane sanctions the scene, and `COO-DECISION 20260908_2141` ordered that
+# sanction retired to break the circular wait blocking the M door.  Arm one
+# (the login door for 126) is lane A's `#1181`, not yet on main; arm three
+# gates on `ARM_THREE_ELIGIBLE_SCENE_IDS`, which is lane A's own src and does
+# not name 126.
+#
+# So this is a window, not a decision, and it closes without anyone coming
+# back: the day either of those two lands, 126 must come OUT of this tuple
+# and the test below starts requiring its 37-actor census again.  Reported to
+# the owner in `notes_to_chief/20260909_1339_LANE-GM-TO-LANE-A-126-
+# unsanctioned-arm-three-eligibility.md`; a measurement, not a bill.
+SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR: tuple[int, ...] = (126,)
+
 
 class _WarpChainHarness(unittest.TestCase):
     """Flagless boot -> arm a real warp -> ask for the next ordinary poll."""
@@ -608,7 +626,10 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
         for scene_id in elsewhere:
             spawn = self._warp(state, scene_id)
             actions, _out, _err = self._poll(state)
-            if scene_id in SCENES_WITH_NO_CENSUS_COMPOSER_YET:
+            if scene_id in (
+                SCENES_WITH_NO_CENSUS_COMPOSER_YET
+                + SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR
+            ):
                 # NAMED, NOT SILENT.  This scene is bare-warp reachable (a
                 # `decreed_arrival`) but has no registered census composer
                 # -- see that tuple's own comment.  What matters is that
@@ -666,9 +687,16 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
             "exception",
         )
         self.assertEqual(
-            sorted(no_composer_yet), sorted(SCENES_WITH_NO_CENSUS_COMPOSER_YET),
-            "the no-composer-yet set drifted from what this round declared "
-            "-- update SCENES_WITH_NO_CENSUS_COMPOSER_YET to match",
+            sorted(no_composer_yet),
+            sorted(
+                SCENES_WITH_NO_CENSUS_COMPOSER_YET
+                + SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR
+            ),
+            "the silent-on-arrival set drifted from what this round declared "
+            "-- update SCENES_WITH_NO_CENSUS_COMPOSER_YET or "
+            "SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR to match (a scene "
+            "that starts shipping its census again must come OUT of the "
+            "second one)",
         )
 
     def test_a_hop_after_the_player_walked_anchors_on_the_destination(self):

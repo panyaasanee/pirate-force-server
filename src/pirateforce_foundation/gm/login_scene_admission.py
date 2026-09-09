@@ -158,13 +158,69 @@ from .scene_catalog import is_known_scene_id
 # public, and easy to reach for; it is NOT part of this lane's charter
 # defence, and reading it as one would be reading a refusal string as a
 # capability.
+# THE MAP IS EMPTY TODAY, AND THAT IS THE HEALTHY STATE.  Scene 126's row
+# (``126: "CHIEF-DECISION 20260829_1603 item 2"``) was RETIRED in LANE-GM
+# round `xbfcsi`, 2026-09-09, on the order of
+# ``COO-DECISION 20260908_2141_retire-scene-126-now-the-condition-is-met``
+# and ``COO-BLOCKER-SWEEP 2141`` item 5.  The retirement rule this module
+# wrote for itself (``sanction_is_retirable``) is a MEASUREMENT, and the
+# measurement that fired is lane A's, not this lane's: on
+# ``pirate-force-server#1181`` (branch `umv5w2`, which opens the login door
+# for 126 per ``PANYA 1218``) ``retirable_sanctioned_scene_ids()`` answers
+# ``(126,)`` and ``login_entry_is_pinned(126)`` answers ``True``.  The
+# earlier condition -- retire in the first GM round after that commit is an
+# ANCESTOR of main (letter ``1805``) -- was struck by the same COO letters
+# because it can never come true: that branch cannot reach main while this
+# lane's own tripwire is red on it, and the tripwire cannot go green until
+# the row is gone.  The retirement therefore comes FIRST, deliberately, and
+# ``retirable_sanctioned_scene_ids() != ()`` (letter ``2055``) is the whole
+# condition that had to hold.
+#
+# WHAT THE DELETION COSTS WHILE MAIN STILL LACKS LANE A'S ROW, measured on
+# main (`1ecf43e`) before the row was removed rather than reasoned about:
+#
+#     retirable_sanctioned_scene_ids()  -> ()      # on main; (126,) on #1181
+#     login_entry_is_pinned(126)        -> False
+#     sanctioned_barred_blocker(126)    -> login_path_bars_it_needs_core_request_gm_038
+#     single_use_stageable_scene_ids()  -> (..., 126, ...)  # only via this row
+#
+# So on main, and only until lane A's login row lands, THREE things are true
+# and the third one is the expensive one:
+#
+#   1. ``/warp 126`` keeps working live (``PANYA 1329`` -- the live warp
+#      reads lane A's decreed arrival, never this map).
+#   2. It STOPS being staged for the next login (``PANYA 1430`` --
+#      ``warp_relog_stage`` answers ``scene_not_sanctioned``, out loud).
+#   3. THE CENSUS FOR 126 GOES DARK.  Its roster rode lane A's SECOND
+#      admission arm, and that arm asks this map
+#      (``lane_a_scene_census.scene_is_sanctioned_for_a_gm_entry``), so
+#      ``scene_may_be_populated(126)`` flips True -> False and a GM who warps
+#      there arrives in an empty ocean where 37 actors used to be.  Arm three
+#      does NOT pick it up: lane A's own ``ARM_THREE_ELIGIBLE_SCENE_IDS``
+#      excludes 126 deliberately and permanently ("it is the second arm's
+#      scene ... regardless of what SANCTIONED_BARRED_SCENES says on any
+#      given round"), which is that lane's answer to this exact retirement.
+#
+# The window closes when lane A's login row reaches main: arm 1 of the census
+# covers 126 then, with no sanction needed.  ~~Nobody has to come back and
+# undo anything.~~ ONE THING DOES have to be undone, and it is pinned so that
+# nobody has to remember: ``SCENES_WHOSE_CENSUS_IS_DARK_PENDING_A_DOOR`` in
+# ``tests/test_gm_warp_chain_census_shipped.py`` names 126 today, and the
+# drift check there goes RED on the day the census comes back, which is the
+# day that tuple must be emptied.
+#
+# HOW A NEW ENTRY IS BORN, kept here because the map being empty is the one
+# state in which the recipe is easy to lose: add ``<scene_id>: "<the letter
+# that sanctioned it>"`` below, and nothing else -- every predicate in this
+# module already reads the map rather than a copy of it, and
+# ``test_the_map_is_exactly_the_letters_this_lane_holds`` is what refuses an
+# id whose letter this lane does not hold.
 SANCTIONED_BARRED_SCENES = MappingProxyType(
     {
         # The VALUE is a citation and nothing else -- it is printed on a
         # console line beside the refusal, so it stays short enough to read
         # and ASCII enough for a cp874 terminal.  What the sanction means,
         # and what is still missing, is the blocker's job, not this string's.
-        126: "CHIEF-DECISION 20260829_1603 item 2",
     }
 )
 
@@ -512,12 +568,22 @@ def sanction_is_retirable(scene_id: int, *, scene_registry=None) -> bool:
 
     IT IS ALSO THE OTHER HALF OF THE GUARD, and that half is why this
     function exists rather than a comment.  Answering ``False`` is a
-    statement that the entry is still LOAD-BEARING: on main today
-    ``warp_relog_stage`` reaches ``stage_login_scene`` for scene 126 only
-    because this map names it, so deleting the row while this answers
-    ``False`` serves ``PANYA 1329`` (the live warp) and silently drops
-    ``PANYA 1430`` (still there after a relog).  Retirement is a
-    measurement, not a date.
+    statement that the entry is still LOAD-BEARING: while a sanction is the
+    only reason ``warp_relog_stage`` reaches ``stage_login_scene`` for a
+    scene, deleting the row serves ``PANYA 1329`` (the live warp) and
+    silently drops ``PANYA 1430`` (still there after a relog).
+
+    ~~That is why the retirement waits for this to answer True.~~ IT DID NOT
+    WAIT, and the reason is recorded rather than left to be rediscovered:
+    for scene 126 this function answered ``False`` on main and ``True`` on
+    the branch that opens the login door, and that branch could not merge
+    while this lane's tripwire was red on it.  ``COO-DECISION 20260908_2141``
+    cut the circle by binding the retirement to
+    ``retirable_sanctioned_scene_ids() != ()`` ON ANY TREE (letter ``2055``)
+    rather than to main, and LANE-GM round `xbfcsi` deleted the row with
+    that cost taken deliberately and announced on the console.  Retirement
+    is still a measurement, not a date -- what changed is WHICH tree the
+    measurement may be taken on.
 
     Follows ``sanctioned_barred_blocker``'s rules for ``scene_registry``
     exactly, raising where it raises: this is a report, never a path a
@@ -709,8 +775,11 @@ def single_use_entry_is_admissible(scene_id: int, *, scene_registry=None) -> boo
     ``is_sanctioned_barred_scene`` alone: a sanction is a chief letter
     saying "this destination is wanted", never a statement that the route
     exists.  A sanctioned scene lane A has not pinned yet
-    (``BLOCKER_NO_REGISTRY_ROW`` -- MEASURED on main this round for the only
-    id in the map, 126) has no arrival point at all, and admitting it would
+    (``BLOCKER_NO_REGISTRY_ROW`` -- ~~MEASURED on main this round for the
+    only id in the map, 126~~; the map is EMPTY on main since LANE-GM round
+    `xbfcsi`, so this arm admits nothing today and is pinned against an
+    installed sanction in
+    ``tests/test_gm_login_scene_sanctioned_admission.py``) has no arrival point at all, and admitting it would
     write an entry the login path refuses for a reason chief's bypass does
     not touch: ``REFUSED_NO_PINNED_SPAWN`` is not
     ``REFUSED_NOT_ALLOWED_AT_LOGIN``.  So exactly one blocker value admits,
