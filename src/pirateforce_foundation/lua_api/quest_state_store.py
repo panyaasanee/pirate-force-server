@@ -118,6 +118,44 @@ OPTIONAL_DOORS: Tuple[str, ...] = ("increment_quest_counter",)
 _FLAG_FIELD = "flag_value"
 _COUNTER_FIELD = "counter_value"
 
+#: The range every WRITE this lane performs coerces a flag value into
+#: (``lua_api.quest._coerce_int(..., _MAX_FLAG_VALUE)``, ``0..0xFFFF``,
+#: mirrored here rather than imported -- this module is the future
+#: import target for ``lua_api.quest``, see the module docstring on
+#: :data:`REFUSED_VALUE` for why the dependency runs one way).
+#: ``store.py`` deliberately does NOT enforce this range: ``flag_value``
+#: is opaque to it by COO decision (``20260901_1059``/``20260908_1642``,
+#: "this database stores the integer and never interprets it"), and its
+#: own test proves it (``tests/test_persistence_quest_state.py``'s
+#: ``test_negative_flag_values_are_stored_as_given``).  So a row written
+#: by anything OTHER than this lane's two coerced closures -- an admin
+#: tool, a migration, a future lane reaching ``store.py`` directly -- can
+#: durably hold a value outside it, INCLUDING ``lua_api.quest.
+#: QUEST_FLAG_UNREADABLE`` (``-1``) itself: the exact collision D6 closed
+#: for "refused" vs. "never set", reopened one layer down for "refused"
+#: vs. "some other writer's out-of-range value" (pf-adversary, re-review
+#: of merged PR #1184, F1: "the sentinel's soundness assumes an
+#: unenforced convention across a boundary between two lanes" -- not
+#: exploitable through the current corpus, since only the two coerced
+#: closures write flags today, but enforced at zero layers, not one).
+#: Refusing here, not clamping or reinterpreting: a value outside the
+#: range this lane ever legitimately writes is a row this lane cannot
+#: trust, not a number to narrow.  Counters are deliberately NOT bounded
+#: this way -- no artifact in this codebase claims a ceiling on a kill
+#: count or any other counter, only on flags.
+_MIN_FLAG_VALUE = 0
+_MAX_FLAG_VALUE = 0xFFFF
+
+
+def _flag_in_range(value: Optional[int]) -> bool:
+    """``True`` unless ``value`` is a flag number this lane never writes.
+
+    ``None`` (never set) is in range: it is not a stored number at all,
+    just the absence of one, and the caller that asked for a flag reads
+    that as "never set" downstream of this function, same as before.
+    """
+    return value is None or _MIN_FLAG_VALUE <= value <= _MAX_FLAG_VALUE
+
 #: Console tokens.  ASCII only (the bridge console is cp874).
 #: Emitted once per host when a store cannot back quest state durably.
 VOLATILE_TOKEN = "LUA_QUEST_STATE_VOLATILE"
@@ -351,8 +389,15 @@ class StoreBackedQuestStateStore:
         if denied is not None:
             return denied
         try:
-            return self._value_of(
+            value = self._value_of(
                 self._store.get_quest_flag(character_id, quest_id), _FLAG_FIELD)
+            if not _flag_in_range(value):
+                # F1: a row some OTHER writer put outside 0..0xFFFF (store.py
+                # enforces no range of its own) -- refuse it exactly like an
+                # unreadable shape, rather than handing back a number this
+                # lane never wrote and that may equal QUEST_FLAG_UNREADABLE.
+                raise _UnreadableRow(_FLAG_FIELD)
+            return value
         except _REFUSALS as exc:
             return self._refuse("get_quest_flag", _reason_of(exc),
                                 character_id, quest_id)
@@ -367,6 +412,12 @@ class StoreBackedQuestStateStore:
             written = self._value_of(
                 self._store.set_quest_flag(character_id, quest_id, flag_value),
                 _FLAG_FIELD)
+            if not _flag_in_range(written):
+                # F1: the read-back disagrees with the range this lane's own
+                # writer just coerced its argument into -- a concurrent
+                # writer this lane does not control landed a row in between.
+                # Trusting it would let `written` equal QUEST_FLAG_UNREADABLE.
+                raise _UnreadableRow(_FLAG_FIELD)
         except _REFUSALS as exc:
             return self._refuse("set_quest_flag", _reason_of(exc),
                                 character_id, quest_id, wrote=True,
