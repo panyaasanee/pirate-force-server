@@ -484,6 +484,31 @@ def _require_player_identity(value: Any, what: str,
     it?"; these take one side only.  Two questions, two predicates, and the
     difference is now written where the fence is instead of inferred from
     an operator.
+
+    THE ACCEPT SET DID CHANGE, AND SAYING SO IS THE POINT (pf-adversary,
+    round ``9xv7rc``, D7).  The four sites this replaces spelled
+    ``isinstance(x, int) and not isinstance(x, bool)``; the shared
+    predicate spells ``type(x) is not int``.  So an ``int`` SUBCLASS and an
+    ``enum.IntEnum`` member used to be accepted here and are now refused.
+    That is the stricter of the two spellings this repository has argued
+    both ways -- ``mob_loot`` line ~5801 keeps ``isinstance`` because a
+    responder counting with an ``IntEnum`` got its loot CLEARED, while
+    ``world_m2_trigger_vital_response`` line ~1189 keeps ``type is int``
+    because the values are hostile wire input.  These doors take values off
+    the wire path, so the strict spelling is the right one here; shipping
+    it inside a change described as behaviour-preserving would not have
+    been.  Reachability today is low: the one production feed
+    (``runtime.selected_actor_identity`` -> ``mob_combat.HitOutcome``
+    -> ``mob_ai_control.damage_step`` -> :func:`apply_damage_threat`)
+    carries plain ints, and :func:`test_a_monster_band_identity_is_refused_
+    at_all_four_player_doors` drives the case the flip needs.
+
+    ``.reason`` is byte-identical at all four doors.  ``.detail`` is NOT:
+    it now carries the predicate's own message in parentheses on the
+    non-integer path.  Nothing in ``src/`` or ``tests/`` reads ``.detail``
+    (it is only assigned, in :class:`MobAiContractError`), so this breaks
+    no caller -- but "the same string" was true of ``reason`` alone and the
+    first draft of this docstring said it of both.
     """
     try:
         on_the_player_side = mob_identity_sign.is_player_identity(value)

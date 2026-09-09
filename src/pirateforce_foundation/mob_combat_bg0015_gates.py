@@ -301,16 +301,17 @@ def splice_identities_missing_from(
         # ONE RULE, ONE PLACE (PANYA-ORDER 20260908_1545 item 2.2,
         # COO-DECISION 20260909_1312 item 1).  These are MONSTER identities
         # -- lane A's census rows for scene 14 -- and this door used to
-        # spell "positive ints" itself.  Every row it is handed today comes
-        # out of the shared ``0x2000 + placement + 1`` formula and is
-        # positive, so the day ``field_mobs.actor_identity`` moves onto the
-        # negative band (job 3 of this lane) this refusal would have thrown
-        # away EVERY placement lane A ships and reported the result as
-        # "all twelve missing" -- a cross-check that answers "the census is
-        # empty" no matter what the census says is worse than no
-        # cross-check, because it reads as a measurement.  The shared
-        # predicate asks the question this door actually means: will the
-        # client draw the actor this number names?
+        # spell ``identity <= 0`` itself, which refuses the whole band the
+        # day ``field_mobs.actor_identity`` moves onto it (job 3).
+        #
+        # THE FIRST DRAFT OF THIS COMMENT FABRICATED THE OLD BEHAVIOUR
+        # (pf-adversary, round 9xv7rc, D2).  It said the old door "would
+        # have reported all twelve missing"; it would not -- it RAISED,
+        # naming the offending value.  Measured: a flipped census through
+        # the old door gives ``MobCombatBg0015GateError: external
+        # identities must be positive ints, got -8193``.  Saying otherwise
+        # invented a failure to justify a change, which is the one thing a
+        # comment beside a refusal must never do.
         #
         # ``type(...) is not int`` stays spelled out here rather than being
         # left to the predicate: ``True`` is a bool, a bool IS an int to
@@ -328,8 +329,29 @@ def splice_identities_missing_from(
         raise MobCombatBg0015GateError(
             "an empty external identity set cannot back anything: refusing "
             "to report 'all twelve missing' as if it were a measurement")
+    spliced = splice_identities(legacy)
+    # A HALF-FLIPPED COMPARISON IS NOT A MEASUREMENT (pf-adversary, round
+    # 9xv7rc, D2).  The two sides are, by this function's own docstring,
+    # separate runtime paths that do not import each other -- so they can
+    # cross onto the negative band at different commits.  While the old
+    # ``identity <= 0`` door stood, that window raised; widening the door to
+    # the whole signed band opened it, and a census on one side compared
+    # with a splice table on the other returns "all of them missing" with no
+    # exception at all: the empty-set guard above does not fire, because the
+    # census is not empty.  That is the exact reading the guard above exists
+    # to refuse, arriving through the other door.  So the sign disagreement
+    # itself is the refusal, named, with both sides in the message.
+    sides = {identity < 0 for identity in external}
+    sides |= {identity < 0 for identity in spliced if type(identity) is int}
+    if len(sides) > 1:
+        raise MobCombatBg0015GateError(
+            "the census and the splice table are on opposite sides of the "
+            "identity sign, so 'missing' would mean 'flipped at a different "
+            "commit', not 'absent': census sample %r, splice sample %r -- "
+            "re-run this cross-check once both sides carry the same band"
+            % (sorted(external)[:3], sorted(spliced)[:3]))
     return tuple(
-        identity for identity in splice_identities(legacy)
+        identity for identity in spliced
         if identity not in external
     )
 

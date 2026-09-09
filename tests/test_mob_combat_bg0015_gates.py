@@ -367,6 +367,68 @@ class Bg0015MeasurementTests(unittest.TestCase):
         with self.assertRaises(gates.MobCombatBg0015GateError):
             gates.splice_identities_missing_from((), self.legacy)
 
+    # ---- the identity door itself (pf-adversary D3, round 9xv7rc) -----
+    # Measured that round: replacing the whole per-identity refusal with
+    # ``if False:`` left this file at 18 passed.  The door had no test in
+    # either direction, so the round that rewrote it was editing a refusal
+    # no acceptance criterion covered.  These four drive it.
+
+    def test_the_door_refuses_a_row_the_client_would_never_draw(
+            self) -> None:
+        """Identity 0: rule 4 of PANYA-ORDER 20260908_1545, measured on
+        screen (R324A: 23 of 24 boards drew, this was the one that did not).
+        ACCEPTANCE CRITERION: stub the refusal to ``if False:`` and this
+        goes red."""
+        census = set(_lane_a_census(self.legacy).actor_identities)
+        with self.assertRaises(gates.MobCombatBg0015GateError):
+            gates.splice_identities_missing_from(census | {0}, self.legacy)
+
+    def test_the_door_refuses_a_bool_rather_than_counting_it_as_one(
+            self) -> None:
+        """``True`` is an int to ``isinstance`` and would join the set as
+        the number 1.  This is why the door keeps its own ``type(...) is
+        not int`` instead of leaving the question to the predicate."""
+        census = set(_lane_a_census(self.legacy).actor_identities)
+        with self.assertRaises(gates.MobCombatBg0015GateError):
+            gates.splice_identities_missing_from(
+                list(census) + [True], self.legacy)
+
+    def test_the_door_refuses_a_value_outside_the_signed_wire_field(
+            self) -> None:
+        census = set(_lane_a_census(self.legacy).actor_identities)
+        with self.assertRaises(gates.MobCombatBg0015GateError):
+            gates.splice_identities_missing_from(
+                census | {2 ** 63}, self.legacy)
+
+    def test_a_census_flipped_ahead_of_the_splice_table_is_refused_not_counted(
+            self) -> None:
+        """pf-adversary D2, round 9xv7rc, driven.
+
+        The census and the splice table are separate runtime paths that do
+        not import each other, so they cross onto the negative monster band
+        at different commits.  In that window every spliced identity is
+        "absent" from the census for a reason that has nothing to do with
+        the census being wrong, and a bare tuple of eleven numbers reads as
+        a measurement.  It must raise instead, and the message must carry
+        both sides so the reader can see WHY they did not match.
+        """
+        flipped = {-(0x2000 + i) for i in range(1, 13)}
+        with self.assertRaises(gates.MobCombatBg0015GateError) as caught:
+            gates.splice_identities_missing_from(flipped, self.legacy)
+        self.assertIn("opposite sides of the identity sign",
+                      str(caught.exception))
+
+    def test_a_census_on_the_same_side_still_answers_normally(self) -> None:
+        """The sign guard must not fire on the state that exists today.
+
+        Without this the previous case could be satisfied by a function
+        that raises on every input, which would silently delete the whole
+        cross-check.
+        """
+        census = set(_lane_a_census(self.legacy).actor_identities)
+        self.assertEqual(
+            gates.splice_identities_missing_from(census, self.legacy), ())
+
     # ---- collisions (unchanged, reviewed sound) ----------------------
 
     def test_the_live_cross_scene_collisions_today(self) -> None:
